@@ -1,0 +1,9 @@
+# Extra Python packages for this Docker image.
+# Installed as --user for the container user via pip install -r.
+#
+# Standard pip requirements format is supported, including:
+#   numpy
+#   torch==2.3.0
+#   --index-url https://download.pytorch.org/whl/cu121
+#   torch
+#   git+https://github.com/user/repo.git@main

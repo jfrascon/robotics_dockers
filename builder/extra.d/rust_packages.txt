@@ -1,0 +1,19 @@
+# Extra Rust packages to install for the container user.
+#
+# If this file contains at least one uncommented, non-empty line, the Rust
+# toolchain (rustup + stable) and cargo-binstall are installed automatically
+# before processing the package list.
+#
+# If all lines are commented out or blank, Rust is NOT installed.
+#
+# Two installation modes are supported per line:
+#
+#   Binary mode (fast): Just write the crate name. A pre-built binary is installed.
+#   Source mode (slow, use only when features or patches are needed): Prefix the
+#     line with 'source:'. The package is compiled from source.
+#
+# Examples:
+#   ripgrep
+#   fd-find
+#   source: broot --features clipboard
+#   source: some-crate --git https://github.com/user/repo
