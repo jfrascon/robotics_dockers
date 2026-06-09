@@ -54,31 +54,10 @@ install_pkgs() {
 log() {
   local type="${1:-info}"
   local message="${2:-}"
-  local timestamp
-  local color=''
-  local endcolor=''
-
-  timestamp="$(date --utc '+%Y-%m-%dT%H:%M:%SZ')"
-
-  if [ -t 1 ]; then
-    endcolor='\\033[0m'
-
-    case "${type}" in
-    info)    color='\\033[38;5;79m' ;;
-    success) color='\\033[1;32m'    ;;
-    warning) color='\\033[1;33m'    ;;
-    error)   color='\\033[1;31m'    ;;
-    debug)   color='\\033[1;34m'    ;;
-    *)       color='\\033[1;34m'    ;;
-    esac
-  fi
-
-  printf '%b[%s] [%s] %s%b\\n' \\
-    "${color}" \\
-    "${timestamp}" \\
-    "${type}" \\
-    "${message}" \\
-    "${endcolor}"
+  printf '[%s] [%s] %s\n' \
+    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+    "${type}" \
+    "${message}"
 }
 
 handle_error() {
