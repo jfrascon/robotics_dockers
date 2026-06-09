@@ -1,0 +1,35 @@
+build/
+install/
+devel/
+log/
+.catkin_tools/
+.devcontainer/
+.vscode/
+*.code-workspace
+
+# Python
+*.egg-info/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg
+
+# Environments
+.env
+.venv/
+venv/
+
+# Temporary / scratch
+tmp/
+*.bak
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
