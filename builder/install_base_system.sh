@@ -170,7 +170,7 @@ packages=(
     gawk
     gdb
     git
-    gnupg2
+    gnupg
     gosu
     htop
     iproute2
