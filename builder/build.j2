@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+
+import argparse
+from datetime import datetime, timezone
+import getpass
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+if __name__ == "__main__":
+
+    def img_exists_locally(img: str) -> bool:
+        cmd = ["docker", "image", "inspect", img]
+        # capture=True -> stdout y stderr redireted to PIPE (they are not shown in the terminal)
+        # check=False  -> it does not throw exception if the image does not exist
+        result = run_command(cmd, capture=True, check=False)
+        return result.returncode == 0
+
+    def is_valid_docker_img_name(name: str) -> bool:
+        """
+        Validate a Docker image name according to Docker's official naming rules.
+
+        Format:
+            [HOST[:PORT_NUMBER]/]PATH[:TAG]
+
+        See: https://docs.docker.com/get-started/docker-concepts/building-images/build-tag-and-publish-an-image/#tagging-images
+        """
+
+        # Optional registry prefix: host (lower‑case letters, digits, dots, dashes)
+        # with optional :PORT, followed by a slash.
+        host_and_port_prefix = r"([a-z0-9.-]+(:[0-9]+)?/)?"
+
+        # A separator inside a path component can be:
+        #   • a single dot
+        #   • one or two underscores
+        #   • one or more dashes
+        path_separator = r"(?:\.|_{1,2}|-+)"
+
+        # A path component must start and end with an alphanumeric character,
+        # separators are allowed only between alphanumerics.
+        path_component = rf"[a-z0-9]+(?:{path_separator}[a-z0-9]+)*"
+
+        # PATH = one or more components separated by '/'
+        path_re = rf"{path_component}(/{path_component})*"
+
+        # Optional TAG: colon + allowed characters (letters, digits, '_', '.', '-')
+        tag_re = r"(:[a-zA-Z0-9_.-]+)?"
+
+        # Full regex combining all parts
+        full_re = re.compile(rf"^{host_and_port_prefix}{path_re}{tag_re}$")
+
+        return bool(full_re.match(name))
+
+    def run_command(
+        cmd: list[str], capture: bool = False, check: bool = True, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(cmd, check=check, text=True, capture_output=capture, cwd=cwd)
+
+    # ----------------------------------------------------------------------------------------------
+    # Main execution block
+    # ----------------------------------------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        description="Builds the Docker image '{{ img_id }}' using the base image '{{ base_img }}', with active user '{{ image_main_user }}' and 'ROS{{ ros_version }}-{{ ros_distro }}'",
+        allow_abbrev=False,  # Disable prefix matching
+        add_help=False,  # Add custom help message
+        formatter_class=lambda prog: argparse.RawTextHelpFormatter(prog, max_help_position=38),
+    )
+
+    parser.add_argument(
+        "-h", "--help", action="help", default=argparse.SUPPRESS, help="Show this help message and exit"
+    )
+
+    parser.add_argument(
+        "-c",
+        "--cache",
+        action="store_true",
+        help="Reuse cached layers to optimize the time and resources needed to build the image.",
+    )
+
+    parser.add_argument(
+        "-p",
+        "--pull",
+        action="store_true",
+        help=(
+            "Checks if a newer version of the base image is available in the proper registry (e.g., Docker Hub).\n"
+            "If a newer version is found, it downloads and uses it. If the latest version is already available\n"
+            "locally it will not download it again. Without --pull Docker uses the local copy of the base image\n"
+            "if it is available on the system. If no local copy exists, Docker will download it automatically.\n"
+            "Usage of --pull is recommended to ensure an updated base image is used."
+        ),
+    )
+
+    parser.add_argument(
+        "--meta-title",
+        type=str,
+        default=f"Docker image with 'ROS{{ ros_version }}-{{ ros_distro }}'",
+        help='Title to include in the image\'s metadata (e.g "App")',
+    )
+
+    parser.add_argument(
+        "--meta-desc",
+        type=str,
+        default="Docker image for development and testing",
+        help="Description to include in the image's metadata",
+    )
+
+    parser.add_argument("--meta-authors", type=str, default=getpass.getuser(), help="Authors of the image")
+
+    parser.add_argument(
+        "--pkgs-dir",
+        type=str,
+        default=None,
+        help=(
+            "Path to the ROS packages directory on the host (e.g. /home/user/workspace/src).\n"
+            "If provided, rosdep will install the dependencies of those packages into the image."
+        ),
+    )
+
+    args = parser.parse_args()
+    args.meta_title = args.meta_title.strip()
+    args.meta_desc = args.meta_desc.strip()
+    args.meta_authors = args.meta_authors.strip()
+
+    this_file = Path(__file__).resolve()
+
+    # To compute paths we use relative paths from the current file. This way multiple users with
+    # this file placed in different directories can use it without issues, having into account that
+    # this file is under source control.
+
+    base_img = "{{ base_img}}"
+    image_main_user = "{{ image_main_user}}"
+    img_id_to_build = "{{ img_id }}"
+
+    if not is_valid_docker_img_name(base_img):
+        print(f"Error: Invalid Docker base image name: '{base_img}'", file=sys.stderr)
+        sys.exit(1)
+
+    if " " in image_main_user:
+        print(f"Error: Invalid user argument '{image_main_user}'", file=sys.stderr)
+        sys.exit(1)
+
+    if not is_valid_docker_img_name(img_id_to_build):
+        print(f"Error: Invalid Docker image name: '{img_id_to_build}'", file=sys.stderr)
+        sys.exit(1)
+
+    context_dir = this_file.parent
+    dockerfile = context_dir.joinpath("Dockerfile")
+
+    if not dockerfile.is_file():
+        print(f"Error: File '{str(dockerfile)}' is required")
+        sys.exit(1)
+
+    # We want to use volume mount during build, which will look like this:
+    # RUN --mount=type=bind,source=...,target=... && <command>
+    # This requires the use of BuildKit (https://docs.docker.com/build/buildkit/), which is default
+    # build behavior for newer Docker clients, and includes improved build functionality.
+    # However, docker-py doesn't support BuildKit, and has an issue open for almost 6 years
+    # (https://github.com/docker/docker-py/issues/2230) so it doesn't seem like it is being added.
+    # Therefore, we use the subprocess module to call docker build... so that we can enable
+    # BuildKit, and thus mount volume during build.
+
+    creation_time = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+
+    # Enables Docker BuildKit for advanced build features.
+    os.environ["DOCKER_BUILDKIT"] = "1"
+
+    cmd = [
+        "docker",
+        "build",
+        "--file",
+        str(dockerfile.resolve()),
+        "--progress=plain",
+    ]
+
+    if args.pull:
+        print(f"--pull specified. Docker build will attempt to pull/update base image '{base_img}'")
+        cmd.append("--pull")
+
+    if not args.cache:
+        cmd.append("--no-cache")
+
+    labels = {
+        "org.opencontainers.image.created": datetime.now(timezone.utc).isoformat(),
+        "org.opencontainers.image.title": args.meta_title,
+        "org.opencontainers.image.description": args.meta_desc,
+        "org.opencontainers.image.authors": args.meta_authors,
+    }
+
+    for k, v in labels.items():
+        cmd += ["--label", f"{k}={v}"]
+
+    cmd.extend(["--tag", img_id_to_build])
+
+    # Always declare a 'pkgs' build context.
+    # If --pkgs-dir is provided, it points to the ROS packages directory.
+    # Otherwise, an empty temporary directory is used so the Dockerfile mount is always valid.
+    if args.pkgs_dir:
+        pkgs_dir = Path(args.pkgs_dir).expanduser().resolve()
+
+        if not pkgs_dir.is_dir():
+            print(f"Error: --pkgs-dir '{pkgs_dir}' does not exist or is not a directory", file=sys.stderr)
+            sys.exit(1)
+    else:
+        pkgs_dir = Path(tempfile.mkdtemp(prefix="pkgs_empty_", dir="/tmp"))
+
+    cmd += ["--build-context", f"pkgs={pkgs_dir}"]
+    cmd.append(str(context_dir))
+
+    print(
+        f"Building the Docker image '{img_id_to_build}' using the base image '{base_img}', with active user '{image_main_user}' and 'ROS{{ ros_version }}-{{ ros_distro }}'"
+    )
+    print("Executing command:")
+    print(" ".join(cmd))
+
+    exit_code = 0
+
+    try:
+        result = subprocess.run(cmd)
+        exit_code = result.returncode
+
+        if exit_code == 0:
+            print(f"\nDocker build process ended with SUCCESS for the image '{img_id_to_build}'")
+        else:
+            print(f"\nDocker build process ended with FAILURE (exit code {exit_code}) for the image '{img_id_to_build}'")
+    except KeyboardInterrupt:
+        print("Aborted by user (Ctrl-C)")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        # Clean up the temporary empty pkgs directory if it was created.
+        if not args.pkgs_dir and pkgs_dir.exists():
+            shutil.rmtree(pkgs_dir, ignore_errors=True)
+        sys.exit(exit_code)

@@ -1,0 +1,183 @@
+# syntax=docker/dockerfile:1
+
+# No default base_img is provided to ensure the build process fails if no base_img is specified.
+# The warning 'InvalidDefaultArgInFrom: Default value for ARG ${base_img} results in empty or
+# invalid base image name' can be safely ignored, as this behavior is intentional.
+FROM {{ base_img }}
+
+# The following labels adhere to the OCI Image Specification for standardized metadata.
+# Reference: https://github.com/opencontainers/image-spec/blob/main/annotations.md
+LABEL org.opencontainers.image.title="Project Docker Image" \
+    org.opencontainers.image.description="A Docker image for development and testing" \
+    org.opencontainers.image.authors="anon"
+
+ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
+    IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
+    ROS_DISTRO="{{ ros_distro }}" \
+    ROS_VERSION="{{ ros_version }}" \
+    DEBIAN_FRONTEND="noninteractive"
+
+USER root
+WORKDIR /root
+
+SHELL ["/bin/bash", "-c"]
+
+# Validate the required files from the build context before running installation steps.
+# This makes the build fail early when a required file is missing, instead of failing after
+# expensive package installation work has already completed.
+RUN --mount=type=bind,source=.,target=/tmp/context <<'EOF'
+log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
+handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
+
+context_dir="/tmp/context"
+required_context_paths=(
+    .resources/bashrc.user
+    .resources/install_base_system.sh
+    .resources/install_ros.sh
+    .resources/install_extra_pkgs.sh
+    .resources/deduplicate_path
+    .resources/entrypoint.sh
+    .resources/rosbuild.sh
+    .resources/rosdep_init_update_install.sh
+{% if ros_version == "2" %}
+    .resources/colcon_mixin_metadata.sh
+{% endif %}
+)
+
+for relative_path in "${required_context_paths[@]}"; do
+    if [ ! -f "${context_dir}/${relative_path}" ]; then
+        handle_error 1 "File not found: ${context_dir}/${relative_path}"
+    fi
+done
+EOF
+
+# Avoid installing recommended and suggested packages.
+RUN tee /etc/apt/apt.conf.d/99norecommends.conf >/dev/null <<'EOF'
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";
+EOF
+
+COPY --chmod=755 .resources/install_base_system.sh /tmp/
+RUN /tmp/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" && rm -f /tmp/install_base_system.sh
+
+COPY --chmod=755 .resources/install_ros.sh /tmp/
+RUN /tmp/install_ros.sh "${ROS_DISTRO}" "${ROS_VERSION}" && rm -f /tmp/install_ros.sh
+
+# Install extra packages from extra.d/ (apt, pip, Rust).
+# Uses --mount so neither the script nor extra.d/ are added as layers.
+RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
+    bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
+
+# The following block is always re-executed and is NOT cached intentionally.
+# It uses --mount=type=bind for both the main context and the pkgs context (rosdep packages dir).
+RUN --mount=type=bind,source=.,target=/tmp/context --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
+log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
+handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
+
+# Detect if any error occurred in the previous installation steps, and if that is the case
+# exit with an error before doing any further work.
+
+# Verify IMAGE_MAIN_USER exists in the system.
+image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}")"
+[ -z "${image_main_user_entry}" ] && handle_error 1 "User '${IMAGE_MAIN_USER}' not found"
+
+# No ROS_DISTRO found at this point, exit with an error.
+# If more than one ROS_DISTRO is found, exit with an error.
+# If the found ROS_DISTRO does not match the expected ROS_DISTRO, exit with an error.
+ros_distro="$(dpkg --list | sed -nE 's/^ii\s+ros-([a-z]+)-ros-core.*$/\1/p' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+num_distros="$(echo "${ros_distro}" | wc -w)"
+
+[ "${num_distros}" -eq 0 ] && handle_error 1 "No ROS distribution found"
+[ "${num_distros}" -gt 1 ] && handle_error 1 "More than one ROS_DISTRO found: ${ros_distro}"
+[ "${ROS_DISTRO}" != "${ros_distro}" ] && handle_error 1 "Found ROS_DISTRO '${ros_distro}', expected ROS_DISTRO '${ROS_DISTRO}'"
+
+# Manage rosdep ignored keys.
+etc_rosdep_dir="/etc/ros/rosdep"
+etc_rosdep_sources_dir="${etc_rosdep_dir}/sources.list.d"
+mkdir --verbose --parent "${etc_rosdep_sources_dir}"
+
+rosdep_ignored_keys_src="/tmp/context/.resources/rosdep_ignored_keys.txt"
+
+if [ -f "${rosdep_ignored_keys_src}" ]; then
+    [ ! -f /tmp/context/.resources/skip_rosdep_keys.sh ] && \
+        handle_error 1 "File 'rosdep_ignored_keys.txt' found but 'skip_rosdep_keys.sh' is missing from context"
+    bash /tmp/context/.resources/skip_rosdep_keys.sh "${rosdep_ignored_keys_src}" || \
+        handle_error 1 "Failed to run 'skip_rosdep_keys.sh'"
+fi
+
+bash /tmp/context/.resources/rosdep_init_update_install.sh \
+    "${ROS_DISTRO}" "${IMAGE_MAIN_USER}" --pkgs-dir /tmp/pkgs_dir || \
+    handle_error 1 "Failed to run 'rosdep_init_update_install.sh'"
+
+{% if ros_version == "2" %}
+bash /tmp/context/.resources/colcon_mixin_metadata.sh "${IMAGE_MAIN_USER}" || \
+    handle_error 1 "Failed to run 'colcon_mixin_metadata.sh'"
+{% endif %}
+
+image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
+image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
+image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
+
+# If the '${bashrc_user_line}' does not exist in the .bashrc file of the user, added it.
+bashrc_user_line='[ -f "${HOME}/.bashrc.user" ] && . "${HOME}/.bashrc.user"'
+
+# -q, --quiet: Suppress normal output.
+# -x, --line-regexp: Select only those matches that exactly match the whole line.
+# -F, --fixed-strings: Interpret the pattern as fixed strings, not regular expressions.
+if ! grep -qxF "${bashrc_user_line}" "${IMAGE_MAIN_USER_HOME}/.bashrc"; then
+    log "Adding line '${bashrc_user_line}' to file the '${IMAGE_MAIN_USER_HOME}/.bashrc'"
+    echo '# --------------------------------------' >> "${IMAGE_MAIN_USER_HOME}/.bashrc"
+    echo "${bashrc_user_line}" >> "${IMAGE_MAIN_USER_HOME}/.bashrc"
+else
+    log "Line '${bashrc_user_line}' already exists in file '${IMAGE_MAIN_USER_HOME}/.bashrc'"
+fi
+
+# An environment script is installed in the home directory of the '${IMAGE_MAIN_USER}'.
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc.user'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc.user "${IMAGE_MAIN_USER_HOME}/.bashrc.user"
+
+# Every file and folder in image_main_user_home must belong to the IMAGE_MAIN_USER.
+log "Setting ownership of path '${IMAGE_MAIN_USER_HOME}' to user '${IMAGE_MAIN_USER}' (UID '${image_main_user_id}') and primary group '${image_main_user_pri_group}' (GID '${image_main_user_pri_group_id}')"
+chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_MAIN_USER_HOME}"
+
+log "Installing file '/usr/local/bin/entrypoint.sh'"
+install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path"
+
+log "Installing file '/usr/local/bin/rosbuild.sh'"
+install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild.sh /usr/local/bin/rosbuild.sh
+
+# Install .bash_aliases.user if present in context.
+if [ -e /tmp/context/.resources/bash_aliases.user ]; then
+    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
+fi
+
+log "Removing installation residues from apt cache"
+apt-get autoclean
+apt-get autoremove --purge -y
+apt-get clean
+rm -rf /var/lib/apt/lists/* &>/dev/null
+EOF
+
+# Configure timezone and localization settings.
+# - TZ: Set the timezone to UTC to ensure consistent time handling across environments.
+# - LC_ALL, LANG, LANGUAGE: Configure localization to US English and UTF-8 encoding, which helps
+#   avoiding issues with character encoding and ensures compatibility with most tools and libraries.
+# Items available for RCUTILS_CONSOLE_OUTPUT_FORMAT:
+# [{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})
+ENV TZ="Etc/UTC" \
+    LC_ALL="en_US.UTF-8" \
+    LANG="en_US.UTF-8" \
+    LANGUAGE="en_US:en" \
+    ROS_HOME="${IMAGE_MAIN_USER_HOME}/.ros" \
+    ROS_LOG_DIR="${IMAGE_MAIN_USER_HOME}/.ros/logs" \
+    ROS_TEST_RESULTS_DIR="${IMAGE_MAIN_USER_HOME}/.ros/tests" \
+    ROS_CONFIG_HOME="${IMAGE_MAIN_USER_HOME}/.config/ros.org" \
+    {{ extra_ros_env_vars | indent(4) }}
+
+USER "${IMAGE_MAIN_USER}"
+WORKDIR "${IMAGE_MAIN_USER_HOME}"
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]
