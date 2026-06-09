@@ -165,7 +165,6 @@ packages=(
     clang-format
     clang-tidy
     cmake
-    cmake-data
     cppcheck
     curl
     gawk
