@@ -1,0 +1,10 @@
+# Rosdep keys to ignore for ROS 2.
+# Add one key per line. Empty lines and lines starting with '#' are ignored.
+# Ref: https://github.com/ros-infrastructure/rosdep/issues/649
+
+# Skip connextdds and gurumdds middleware packages.
+rmw_connextdds
+rmw_connextdds_common
+rti-connext-dds-cmake-module
+rmw_gurumdds_cpp
+gurumdds_cmake_module
