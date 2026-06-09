@@ -1,0 +1,452 @@
+#!/usr/bin/env bash
+
+# Summary
+# -------
+# This entrypoint adapts the UID and primary GID of IMAGE_MAIN_USER at container
+# startup to match the host user's UID (HOST_UID) and GID (HOST_UPGID), so that
+# files created inside the container are owned by the same user on the host.
+#
+# Flow:
+#   HOST_UID/HOST_UPGID not set
+#     -> start directly without adaptation
+#   HOST_UID/HOST_UPGID set but invalid (empty, non-integer, < 1000)
+#     -> fail_validation
+#   Current user is not root
+#     -> adaptation impossible, start as-is
+#   [Only reaches here if: current user is root + HOST_UID/UPGID valid]
+#   Adapt UID of IMAGE_MAIN_USER:
+#     HOST_UID free           -> usermod --uid
+#     HOST_UID taken by other -> error (user must resolve manually)
+#     HOST_UID already set    -> no-op
+#   Adapt primary GID:
+#     HOST_UPGID free           -> groupmod --gid
+#     HOST_UPGID taken by other -> rename dance (assign new name to conflicting
+#                                  group, then give our group name its GID)
+#     HOST_UPGID already set    -> no-op
+#   chown home (skipping bind mounts) -> gosu -> exec#
+# Render device access (/dev/dri/renderD*) is NOT handled here. It must be
+# configured via 'group_add' in docker-compose, passing the host GID of the
+# render device so all container processes inherit it from the start.
+# Exit immediately if a command exits with a non-zero status.
+# set -e
+
+# Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
+
+LOG_FILE="/tmp/log.log"
+REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than 1000"
+
+chown_home_without_crossing_mounts() {
+    local home_dir="${1}"
+    local owner="${2}"
+    local mount_path
+    local find_args
+    local home_mounts
+
+    # Update the ownership of the image user's home directory without entering bind mounts.
+    # The home directory may contain paths mounted from the host, for example the workspace,
+    # .gitconfig, .bashrc.user, or other project files. Those paths already belong to the host user.
+    # Changing their ownership from the entrypoint is unnecessary and can be very expensive.
+    #
+    # /proc/self/mountinfo is the kernel view of the mount points visible to this process.
+    # Field 5 is the mount point path. Spaces are escaped as \040 in this file.
+    mapfile -t home_mounts < <(
+        awk -v home="${home_dir}" '
+            {
+                mount_point = $5
+                gsub(/\\040/, " ", mount_point)
+
+                if (index(mount_point, home "/") == 1) {
+                    print mount_point
+                }
+            }
+        ' /proc/self/mountinfo
+    )
+
+    # Start the find expression at the home directory. Extra entries are appended below to
+    # prune every mounted path below the home directory before chown can descend into it.
+    find_args=("${home_dir}")
+
+    for mount_path in "${home_mounts[@]}"; do
+        log info "Skipping mounted path during home ownership update: ${mount_path}"
+
+        # -path <mount> -prune stops find from entering that mounted path.
+        # -o keeps evaluating the final -exec chown branch for every non-pruned path.
+        find_args+=(-path "${mount_path}" -prune -o)
+    done
+
+    # chown -h changes symlink ownership instead of following symlinks.
+    # The command updates regular home content but does not cross into mounted host paths.
+    find "${find_args[@]}" -exec chown -h "${owner}" {} +
+}
+
+# Find first integer that can be used as uid and gid above >= 2000
+find_free_id() {
+    awk -F: '
+        NR==FNR { uids[$3]=1; next }
+        { uids[$3]=1 }
+        END { for(i=2000;i<60000;++i) if(!(i in uids)) { print i; break } }
+    ' /etc/passwd /etc/group
+}
+
+generate_unique_name() {
+    local type="${1}"     # "user" or "group"
+    local prefix="${2:-}" # optional prefix
+    local getent_target
+    local candidate
+
+    case "${type}" in
+    user)
+        getent_target="passwd"
+        ;;
+    group)
+        getent_target="group"
+        ;;
+    *)
+        echo "Error: unknown type '${type}'. Use 'user' or 'group'." >&2
+        return 1
+        ;;
+    esac
+
+    while :; do
+        candidate="${prefix}$(tr -dc 'a-z' </dev/urandom | head -c 8)"
+        if ! getent "${getent_target}" "${candidate}" >/dev/null 2>&1; then
+            echo "${candidate}"
+            return
+        fi
+    done
+}
+
+log() {
+    local level="info"
+    local out_fd=1
+
+    case "$1" in
+    info)    level="info";    shift ;;
+    error)   level="error";   shift; out_fd=2 ;;
+    warning) level="warning"; shift ;;
+    success) level="success"; shift ;;
+    debug)   level="debug";   shift ;;
+    *) ;;
+    esac
+
+    local ts
+    ts="$(date --utc '+%Y-%m-%dT%H:%M:%SZ')"
+    local line="[${ts}] [${level}] $*"
+
+    [ -n "${LOG_FILE-}" ] && printf '%s\n' "${line}" >>"${LOG_FILE}"
+    printf '%s\n' "${line}" >&"${out_fd}"
+}
+
+handle_error() {
+    local exit_code="${1:-1}"
+    local message="${2:-Unknown error}"
+    log error "${message}"
+    exit "${exit_code}"
+}
+
+fail_validation() {
+    log error "${1}"
+    [ "$(id --user)" -ne 0 ] && log info "${REMEMBER_MSG}"
+    exit 1
+}
+
+print_banner() {
+    local message="${1}"
+    local fd="${2:-1}"          # default to 1 (stdout) if not provided
+    local border_char="${3:--}" # default to '=' if not provided
+
+    # Validate that fd is either 1 (stdout) or 2 (stderr)
+    if [[ ${fd} != "1" && ${fd} != "2" ]]; then
+        fd=1
+    fi
+
+    local line=" ${message} "
+    local len=${#line}
+    local border
+    border="$(printf "%${len}s" | tr ' ' "${border_char}")"
+
+    [ -n "${LOG_FILE-}" ] && printf '%s\n%s\n%s\n' "${border}" "${line}" "${border}" >>"${LOG_FILE}"
+    printf '%s\n' "${border}" >&"${fd}"
+    printf '%s\n' "${line}" >&"${fd}"
+    printf '%s\n' "${border}" >&"${fd}"
+}
+
+#---------------------------------------------------------------------------------------------------
+# Script execution
+#---------------------------------------------------------------------------------------------------
+current_user_id="$(id --user)"
+current_user_entry="$(getent passwd "${current_user_id}" 2>/dev/null)"
+
+[ -z "${current_user_entry}" ] && echo "Error: User with id '${current_user_id}' does not exist" >&2 && exit 1
+
+current_user="$(echo "${current_user_entry}" | cut -d: -f1)"
+current_user_pri_group_id="$(echo "${current_user_entry}" | cut -d: -f4)"
+current_user_pri_group="$(getent group "${current_user_pri_group_id}" | cut -d: -f1)"
+current_user_home="$(echo "${current_user_entry}" | cut -d: -f6)"
+
+print_banner "Entrypoint: starting container for user '${IMAGE_MAIN_USER}'"
+
+script="${BASH_SOURCE:-${0}}"
+
+log info "Executing script '${script}' with user '${current_user}' (UID '${current_user_id}') and primary group '${current_user_pri_group}' (UPGID '${current_user_pri_group_id}')"
+
+# Possible values of the two variables HOST_UID and HOST_UPGID are:
+# Case |  HOST_UID           |  HOST_UPGID
+# ---------------------------------------
+#  1   | undefined           |  undefined
+#  2   | defined, empty      |  undefined
+#  3   | defined, non-empty  |  undefined
+#  4   | undefined           |  defined, empty
+#  5   | defined, empty      |  defined, empty
+#  6   | defined, non-empty  |  defined, empty
+#  7   | undefined           |  defined, non-empty
+#  8   | defined, empty      |  defined, non-empty
+#  9   | defined, non-empty  |  defined, non-empty
+
+
+# Case is 9 is the one in which UID/GID adaptation is possible: both variables defined and
+# non-empty.
+# However, even if case 9 is satisfied, the non-empty values of both variables must be integers
+# greater than 1000 to be valid IDs and the active user must be root, since only root can change
+# UIDs and GIDs.
+
+# Case 1: HOST_UID and HOST_UPGID are both undefined, the UID/GID adaptation is not possible, so
+# just execute the command as-is, without adaptation, with whichever user is active.
+# The active user is determined in order of priority:
+#  1. --user flag in 'docker run'
+#  2. 'user' field in docker-compose
+#  3. Last USER instruction in the Dockerfile
+if [ -z "${HOST_UID+x}" ] && [ -z "${HOST_UPGID+x}" ]; then
+
+    [ -s "${current_user_home}/.bashrc.user" ] && . "${current_user_home}/.bashrc.user"
+    exec "$@"
+fi
+
+# Case 2-8: HOST_UID and HOST_UPGID are in a state that makes adaptation impossible (one of them is
+# undefined, or one of them is empty, so fail with a clear message.
+
+# If HOST_UID is empty, fail with a clear message.
+if [ -z "${HOST_UID}" ]; then
+    fail_validation "HOST_UID is empty. Either both HOST_UID and HOST_UPGID are undefined, or both must be defined with a non-empty integer value greater than 1000"
+fi
+
+# If HOST_UPGID is empty, fail with a clear message.
+if [ -z "${HOST_UPGID}" ]; then
+    fail_validation "HOST_UPGID is empty. Either both HOST_UID and HOST_UPGID are undefined, or both must be defined with a non-empty integer value greater than 1000"
+fi
+
+# From here on, both variables, HOST_UID and HOST_UPGID, are defined and non-empty, so adaptation is
+# possible in principle, but validation is still needed: both must be integers greater than 1000.
+# Integer values lower than 1000 are reserved for the operating system.
+
+if ! [[ ${HOST_UID} =~ ^-?[0-9]+$ ]]; then
+    fail_validation "HOST_UID must be an integer greater than 1000, given '${HOST_UID}'"
+fi
+
+if ! [[ ${HOST_UPGID} =~ ^-?[0-9]+$ ]]; then
+    fail_validation "HOST_UPGID must be an integer greater than 1000, given '${HOST_UPGID}'"
+fi
+
+if [ "${HOST_UID}" -lt 1000 ] || [ "${HOST_UPGID}" -lt 1000 ]; then
+    fail_validation "HOST_UPGID ('${HOST_UPGID}') and HOST_UID ('${HOST_UID}') must be greater than 1000"
+fi
+
+# If the execution reaches this point, case 9 is satisfied with both variables, HOST_UID and
+# HOST_UPGID, being integer values greater than 1000, so the last check before adaptation is to
+# verify if the current user is root, since only root can change UIDs and GIDs.
+log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"
+
+if [ "${current_user_id}" -ne 0 ]; then
+    # Since the current user is not root, adaptation is not possible.
+    log info "${REMEMBER_MSG}"
+    [ -s "${current_user_home}/.bashrc.user" ] && . "${current_user_home}/.bashrc.user"
+    exec "$@"
+fi
+
+# If the variable ${IMAGE_MAIN_USER} is undefined or empty, fail with a clear message.
+# This is a very unlikely case since the Dockerfile should ensure that the variable IMAGE_MAIN_USER
+# is always defined with a non-empty value, but we check it just in case.
+if [ -z "${IMAGE_MAIN_USER}" ]; then
+    handle_error 1 "IMAGE_MAIN_USER variable not set"
+fi
+
+# If the user ${IMAGE_MAIN_USER} does not exist in the system, fail with a clear message.
+image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}" 2>/dev/null)"
+
+if [ -z "${image_main_user_entry}" ]; then
+    handle_error 1 "User '${IMAGE_MAIN_USER}' does not exist"
+fi
+
+# IMAGE_MAIN_USER must not be root, this project requires a non-root development user.
+# This situation should not happen since the Dockerfile should ensure that IMAGE_MAIN_USER is set
+# to a non-root user, but we check it just in case and fail with a clear message if it is root.
+image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
+
+[ "${image_main_user_id}" -eq 0 ] && handle_error 1 "IMAGE_MAIN_USER '${IMAGE_MAIN_USER}' has UID 0 (root). A non-root user is required."
+
+image_main_user_home="$(echo "${image_main_user_entry}" | cut -d: -f6)"
+image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
+image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
+
+# If the home directory of the user ${IMAGE_MAIN_USER} does not exist in the system, fail with a clear message.
+if [ ! -d "${image_main_user_home}" ]; then
+    handle_error 1 "The home directory '${image_main_user_home}' does not exist"
+fi
+
+# If the primary group of the user ${IMAGE_MAIN_USER} does not exist in the system, fail with a clear message.
+if [ -z "${image_main_user_pri_group}" ]; then
+    handle_error 1 "Group '${image_main_user_pri_group_id}' does not exist (Primary group of user '${IMAGE_MAIN_USER}')"
+fi
+
+# Adapt the UID and primary GID of '${IMAGE_MAIN_USER}' to match HOST_UID and HOST_UPGID.
+
+log info "User '${IMAGE_MAIN_USER}' has UID '${image_main_user_id}' and primary group '${image_main_user_pri_group}' (GID '${image_main_user_pri_group_id}') (${image_main_user_entry})"
+
+user_entry="$(getent passwd "${HOST_UID}")"
+
+# If the id ${HOST_UID} is not in use, assign it to the user ${IMAGE_MAIN_USER}.
+if [ -z "${user_entry}" ]; then
+    # HOST_UID is not in use and can be assigned to IMAGE_MAIN_USER.
+    log info "Setting id '${HOST_UID}' to user '${IMAGE_MAIN_USER}'"
+    usermod --uid "${HOST_UID}" "${IMAGE_MAIN_USER}"
+    log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
+
+    # Update the variable to reflect the new user id.
+    image_main_user_id="${HOST_UID}"
+# Conflict: HOST_UID is already in use by a user other than IMAGE_MAIN_USER.
+# Two resolution options exist:
+#
+# Option 1 (not implemented, kept for reference):
+#   Step 1. Assign a free UID to the user currently holding HOST_UID, freeing it up for IMAGE_MAIN_USER.
+#           (Having two users share the same UID is technically possible but causes ambiguity in
+#           tools like ls, ps, and stat, which resolve UIDs to the first matching entry in
+#           /etc/passwd, hence the need to relocate the conflicting user first.)
+#   Step 2. Update ownership of that user's home directory to reflect the new UID.
+#   Step 3. Assign HOST_UID to IMAGE_MAIN_USER.
+#
+#   Option 1 is technically feasible with the steps above, but introduces risks that are hard to
+#   anticipate at the time of execution:
+#     - Running processes owned by the displaced user retain the old UID in-memory.
+#     - Files outside that user's home directory may be owned by the old UID and become misowned
+#       after the change, without any automatic fix.
+#     - UID-dependent resources such as sockets, pipes, or capabilities may behave
+#       unexpectedly after the reassignment.
+#   For these reasons, Option 2 is preferred.
+#
+# Option 2 (implemented):
+#   Fail with a clear error and let the operator resolve the conflict manually.
+elif [ "${HOST_UID}" != "${image_main_user_id}" ]; then
+    # If the execution reaches this point, it means that the id ${HOST_UID} is in use in the Docker image by another
+    # user that is not the user ${IMAGE_MAIN_USER}.
+
+    # This situation is also encountered by the vscode.remote-containers extension when using
+    # "updateRemoteUserUID": true (see updateUID.Dockerfile in your VS Code installation at
+    # ${HOME}/.vscode/extensions/ms-vscode-remote.remote-containers-x.y.z/scripts/updateUID.Dockerfile).
+    # In that case the extension does not fail, it silently starts the container with the original UID of
+    # IMAGE_MAIN_USER instead of HOST_UID, which causes permission mismatches when accessing files created on the host
+    # by the user with HOST_UID, and vice versa.
+    # This script takes the opposite approach: fail explicitly so the operator is aware of the conflict.
+    msg="UID '${HOST_UID}' is already in use by user '$(echo "${user_entry}" | cut -d: -f1)' (${user_entry})"
+    msg+=$'\n'"Either change HOST_UID to a free value or resolve the conflict manually"
+    handle_error 1 "${msg}"
+
+    # Option 1 is outlined here for reference, as commented-out code.
+    # We need to set the id ${HOST_UID} to the user ${IMAGE_MAIN_USER}.
+    # user="$(echo "${user_entry}" | cut -d: -f1)"
+    # user_pri_group_id="$(echo "${user_entry}" | cut -d: -f4)"
+    # user_home="$(echo "${user_entry}" | cut -d: -f6)"
+    # log info "The user '${user}' is using the id '${HOST_UID}' (${user_entry})"
+
+    # To do this, first, we find a free id and assign it to the user ${user}, that currently has the id ${HOST_UID}.
+    # This way, the id ${HOST_UID} will be available to be set to the user ${IMAGE_MAIN_USER}.
+    # new_user_id="$(find_free_id)"
+    # log info "Setting id '${new_user_id}' to user '${user}'"
+    # usermod --uid "${new_user_id}" "${user}"
+    # log info "($(getent passwd "${user}"))"
+
+    # Since the user ${user} has a different id now, just in case, we need to change the
+    # ownership of the home directory of the user ${user} to reflect the new id.
+    # log info "Setting ownership of home directory '${user_home}' to '${new_user_id}:${user_pri_group_id}'"
+    # chown -R "${new_user_id}":"${user_pri_group_id}" "${user_home}"
+
+    # Now we can set the id ${HOST_UID} to the user ${IMAGE_MAIN_USER}.
+    # log info "Setting id '${HOST_UID}' to user '${IMAGE_MAIN_USER}'"
+    # usermod --uid "${HOST_UID}" "${IMAGE_MAIN_USER}"
+    # log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
+fi
+
+# The remaining case, "${HOST_UID}" = "${image_main_user_id}", means IMAGE_MAIN_USER is
+# already using HOST_UID, so the UID is already correct and no change is required.
+
+# From here on, the user ${IMAGE_MAIN_USER} has the id ${HOST_UID}.
+
+# Detect if a group in the Docker image is already using the id ${HOST_UPGID}.
+group_entry="$(getent group "${HOST_UPGID}")"
+
+# If the id ${HOST_UPGID} is not in use, assign it to the primary group of the user ${IMAGE_MAIN_USER}.
+if [ -z "${group_entry}" ]; then
+    # HOST_UPGID is not in use and can be assigned to the existing group '${image_main_user_pri_group}'.
+    log info "Group id '${HOST_UPGID}' is not in use in the image"
+    log info "Setting id '${HOST_UPGID}' to group '${image_main_user_pri_group}'"
+    groupmod --gid "${HOST_UPGID}" "${image_main_user_pri_group}"
+
+    # Next, we need to set the primary group id of the user ${IMAGE_MAIN_USER} to the group id ${HOST_UPGID}.
+    # We do this action outside this if-elif structure.
+# Conflict: HOST_UPGID is already assigned to a group other than IMAGE_MAIN_USER's primary group.
+# Unlike the UID conflict, this conflict is safely recoverable because renaming a group only affects
+# how its GID is displayed by tools like ls, id, or ps, the GID number, file ownership, and group
+# memberships remain unchanged.
+#
+# The goal is to end up with a group named '${image_main_user_pri_group}' that has GID HOST_UPGID,
+# so that IMAGE_MAIN_USER's primary group name matches what is expected. The steps are:
+#
+#   Step 1. The name '${image_main_user_pri_group}' is currently in use by IMAGE_MAIN_USER's
+#           primary group (which has a different GID). Rename it to a temporary unique name
+#           to free up the name for the next step.
+#   Step 2. The group currently owning HOST_UPGID has a different name. Rename it to
+#           '${image_main_user_pri_group}', so that the group with GID HOST_UPGID now carries
+#           the expected name.
+#   Step 3. Set HOST_UPGID as the primary GID of IMAGE_MAIN_USER (done outside this block).
+elif [ "${HOST_UPGID}" != "${image_main_user_pri_group_id}" ]; then
+    # If the execution reaches this point, it means that the id ${HOST_UPGID} is in use in the
+    # Docker image by another group that is not the group ${image_main_user_pri_group}.
+    group="$(echo "${group_entry}" | cut -d: -f1)"
+    log info "The group '${group}' is using the id '${HOST_UPGID}' (${group_entry})"
+
+    # Rename IMAGE_MAIN_USER's current primary group to a temporary unique name, freeing the name
+    # '${image_main_user_pri_group}' so it can be assigned to the group owning HOST_UPGID.
+    new_group_name="$(generate_unique_name group "${image_main_user_pri_group}_")"
+    log info "Setting name '${new_group_name}' to group '${image_main_user_pri_group_id}'. Name '${image_main_user_pri_group}' will be available"
+    groupmod --new-name "${new_group_name}" "${image_main_user_pri_group}"
+    log info "($(getent group "${new_group_name}"))"
+
+    # Now, we can set the name ${image_main_user_pri_group} to the group with id ${HOST_UPGID}.
+    log info "Setting name '${image_main_user_pri_group}' to group '${HOST_UPGID}'"
+    groupmod --new-name "${image_main_user_pri_group}" "${group}"
+    log info "($(getent group "${image_main_user_pri_group}"))"
+
+    # Next, we need to set the primary group id of the user ${IMAGE_MAIN_USER} to the group id ${HOST_UPGID}.
+    # We do this action outside this if-elif structure.
+fi
+
+# The remaining case, "${HOST_UPGID}" = "${image_main_user_pri_group_id}", means IMAGE_MAIN_USER's
+# primary group already has GID HOST_UPGID, so the GID is already correct and no change is required.
+
+# At this point HOST_UPGID is guaranteed to be the GID of a group named
+# '${image_main_user_pri_group}'. Assign it as the primary GID of IMAGE_MAIN_USER.
+if [ "${HOST_UPGID}" != "${image_main_user_pri_group_id}" ]; then
+    log info "Setting primary group id '${HOST_UPGID}' to user '${IMAGE_MAIN_USER}'"
+    usermod --gid "${HOST_UPGID}" "${IMAGE_MAIN_USER}"
+    log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
+fi
+
+# Update home directory ownership to the final UID:GID, regardless of which code paths
+# above were taken. Bind-mounted host paths inside the home are intentionally skipped.
+log info "Setting ownership of home directory '${image_main_user_home}' to '${HOST_UID}:${HOST_UPGID}', skipping mounted paths"
+chown_home_without_crossing_mounts "${image_main_user_home}" "${HOST_UID}:${HOST_UPGID}"
+
+# gosu starts a new session with the new user and group ids.
+exec gosu "${IMAGE_MAIN_USER}" bash -c '
+    [ -s "${HOME}/.bashrc.user" ] && . "${HOME}/.bashrc.user"
+    exec "$@"
+' bash "$@"
