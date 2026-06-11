@@ -13,19 +13,17 @@ from jinja2 import Environment, FileSystemLoader
 
 if __name__ == "__main__":
     ROS_DISTROS: dict[str, str] = {
-        "noetic": "1:20.04",
-        "humble": "2:22.04",
-        "jazzy": "2:24.04",
+        "noetic": "20.04",
+        "humble": "22.04",
+        "jazzy": "24.04",
     }
 
     def create_items_to_install(
         base_img: str,
         image_main_user: str,
         ros_distro: str,
-        ros_version: str,
         img_id_to_build: str,
         use_host_nvidia_driver: bool,
-        extra_ros_env_vars: str,
     ) -> dict[str, list[str | dict[str, str] | bool]]:
         # Items to use.
         # Source is relative to base_dir, destination relative to context_path)
@@ -40,8 +38,6 @@ if __name__ == "__main__":
                     "image_main_user": image_main_user,
                     "image_main_user_home": f"/home/{image_main_user}",
                     "ros_distro": ros_distro,
-                    "ros_version": ros_version,
-                    "extra_ros_env_vars": extra_ros_env_vars,
                 },
                 False,
             ],
@@ -52,7 +48,6 @@ if __name__ == "__main__":
                     "img_id": img_id_to_build,
                     "image_main_user": image_main_user,
                     "ros_distro": ros_distro,
-                    "ros_version": ros_version,
                 },
                 True,
             ],
@@ -74,8 +69,8 @@ if __name__ == "__main__":
             ".resources/deduplicate_path": ["deduplicate_path", True],
             ".resources/install_base_system.sh": ["install_base_system.sh", True],
             ".resources/install_extra_pkgs.sh": ["install_extra_pkgs.sh", True],
-            ".resources/install_ros.sh": [f"install_ros{ros_version}.sh", True],
-            ".resources/rosbuild": [f"ros{ros_version}build", True],
+            ".resources/install_ros.sh": ["install_ros1.sh", True],
+            ".resources/rosbuild": ["ros1build", True],
             ".resources/rosdep_init_update_install.sh": ["rosdep_init_update_install.sh", True],
             # extra.d/ templates
             ".resources/extra.d/apt_packages.sh": ["extra.d/apt_packages.sh", True],
@@ -83,15 +78,10 @@ if __name__ == "__main__":
             ".resources/extra.d/rust_packages.txt": ["extra.d/rust_packages.txt", False],
         }
 
-        if ros_version == "2":
-            items_to_install[".resources/colcon_mixin_metadata.sh"] = [
-                "colcon_mixin_metadata.sh",
-                True,
-            ]
-            items_to_install[".resources/skip_rosdep_keys"] = [
-                "skip_rosdep_keys",
-                True,
-            ]
+        items_to_install["resources/skip_rosdep_keys"] = [
+            "skip_rosdep_keys",
+            True,
+        ]
 
         items_to_install[".resources/entrypoint.sh"] = ["entrypoint.sh", True]
         items_to_install[".resources/entrypoint.d/00-checks.sh"] = [
@@ -108,19 +98,12 @@ if __name__ == "__main__":
                 True,
             ]
 
-        if ros_version == "1":
-            # ROS1 bashrc still uses {{ ros_distro }} Jinja2 variable.
-            items_to_install[".resources/bashrc.user"] = [
-                "bashrc.user.ros1.j2",
-                {"ros_distro": ros_distro},
-                True,
-            ]
-        else:
-            # ROS2 bashrc is plain bash — no Jinja2 variables.
-            items_to_install[".resources/bashrc.user"] = [
-                "bashrc.user.ros2",
-                True,
-            ]
+        # ROS1 bashrc uses {{ ros_distro }} Jinja2 variable.
+        items_to_install[".resources/bashrc.user"] = [
+            "bashrc.user.ros1.j2",
+            {"ros_distro": ros_distro},
+            True,
+        ]
 
         # If not using the host NVIDIA driver, provide Mesa packages script as
         # extra.d/apt_packages.sh so the user can enable/extend it before building.
@@ -138,16 +121,11 @@ if __name__ == "__main__":
         # Sort by ROS version, then Ubuntu version, then distro name for consistent help output
         sorted_distros = sorted(
             ROS_DISTROS.items(),
-            key=lambda item: (
-                int(item[1].split(":")[0]),
-                item[1].split(":")[1],
-                item[0],
-            ),
+            key=lambda item: (item[1], item[0]),
         )
 
         for key, value in sorted_distros:
-            ros_version, ubuntu_version = value.split(":")
-            lines.append(f"    {key:<6}: ros{ros_version}, ubuntu {ubuntu_version}.")
+            lines.append(f"    {key:<6}: ubuntu {value}.")
 
         return "\n".join(lines)
 
@@ -405,7 +383,7 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    ros_version, ubuntu_version = ROS_DISTROS[ros_distro].split(":")
+    ubuntu_version = ROS_DISTROS[ros_distro]
 
     if not base_img:
         base_img = f"ubuntu:{ubuntu_version}"
@@ -419,7 +397,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         print(
-            f"No base image specified, defaulting to '{base_img}' for 'ROS{ros_version}-{ros_distro}'"
+            f"No base image specified, defaulting to '{base_img}' for 'ROS1-{ros_distro}'"
         )
     elif not is_valid_docker_img_name(base_img):
         print(f"Error: Invalid Docker base image name: '{base_img}'", file=sys.stderr)
@@ -438,26 +416,6 @@ if __name__ == "__main__":
 
     root_path = Path(__file__).expanduser().resolve().parent
 
-    if ros_version == 1:
-        extra_ros_env_vars_file = root_path.joinpath("env_vars_ros1.txt")
-
-        if not extra_ros_env_vars_file.is_file():
-            print(f"File '{str(extra_ros_env_vars_file)}' not found.")
-            sys.exit(1)
-
-        with extra_ros_env_vars_file.open("r") as f:
-            extra_ros_env_vars = f.read()
-
-        if not extra_ros_env_vars.strip():
-            print(f"File '{str(extra_ros_env_vars_file)}' is empty.")
-            sys.exit(1)
-    else:
-        jinja2_env = Environment(
-            loader=FileSystemLoader(root_path), trim_blocks=True, lstrip_blocks=True
-        )
-        jinja2_template = jinja2_env.get_template("env_vars_ros2.j2")
-        extra_ros_env_vars = jinja2_template.render({"ros_distro": ros_distro})
-
     # with tempfile.TemporaryDirectory(prefix="context_", dir="/tmp") as tmp_dir:
     if args.output:
         context_dir = Path(args.output).expanduser().resolve()
@@ -472,10 +430,8 @@ if __name__ == "__main__":
             base_img,
             image_main_user,
             ros_distro,
-            ros_version,
             img_id_to_build,
             args.use_host_nvidia_driver,
-            extra_ros_env_vars,
         ),
         context_dir,
     )

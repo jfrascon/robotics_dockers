@@ -14,7 +14,7 @@ LABEL org.opencontainers.image.title="Project Docker Image" \
 ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
     IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
     ROS_DISTRO="{{ ros_distro }}" \
-    ROS_VERSION="{{ ros_version }}" \
+    ROS_VERSION="1" \
     DEBIAN_FRONTEND="noninteractive"
 
 USER root
@@ -39,9 +39,6 @@ required_context_paths=(
     .resources/entrypoint.sh
     .resources/rosbuild
     .resources/rosdep_init_update_install.sh
-{% if ros_version == "2" %}
-    .resources/colcon_mixin_metadata.sh
-{% endif %}
 )
 
 for relative_path in "${required_context_paths[@]}"; do
@@ -61,7 +58,7 @@ COPY --chmod=755 .resources/install_base_system.sh /tmp/
 RUN /tmp/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" && rm -f /tmp/install_base_system.sh
 
 COPY --chmod=755 .resources/install_ros.sh /tmp/
-RUN /tmp/install_ros.sh "${ROS_DISTRO}" "${ROS_VERSION}" && rm -f /tmp/install_ros.sh
+RUN /tmp/install_ros.sh "${ROS_DISTRO}" && rm -f /tmp/install_ros.sh
 
 # Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
 COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
@@ -114,11 +111,6 @@ bash /usr/local/bin/skip_rosdep_keys "${rosdep_ignored_keys[@]}" || \
 bash /tmp/context/.resources/rosdep_init_update_install.sh \
     "${ROS_DISTRO}" "${IMAGE_MAIN_USER}" --pkgs-dir /tmp/pkgs_dir || \
     handle_error 1 "Failed to run 'rosdep_init_update_install.sh'"
-
-{% if ros_version == "2" %}
-bash /tmp/context/.resources/colcon_mixin_metadata.sh "${IMAGE_MAIN_USER}" || \
-    handle_error 1 "Failed to run 'colcon_mixin_metadata.sh'"
-{% endif %}
 
 image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
 image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
@@ -181,7 +173,11 @@ ENV TZ="Etc/UTC" \
     ROS_LOG_DIR="${IMAGE_MAIN_USER_HOME}/.ros/logs" \
     ROS_TEST_RESULTS_DIR="${IMAGE_MAIN_USER_HOME}/.ros/tests" \
     ROS_CONFIG_HOME="${IMAGE_MAIN_USER_HOME}/.config/ros.org" \
-    {{ extra_ros_env_vars | indent(4) }}
+    ROS_MASTER_URI="http://localhost:11311" \
+    ROS_HOSTNAME="localhost" \
+    ROSCONSOLE_CONFIG_FILE="/opt/ros/${ROS_DISTRO}/share/ros/config/rosconsole.config" \
+    ROSCONSOLE_STDOUT_LINE_BUFFERED="1" \
+    ROSCONSOLE_FORMAT="[\${severity}] [\${time}] \${message}"
 
 USER "${IMAGE_MAIN_USER}"
 WORKDIR "${IMAGE_MAIN_USER_HOME}"
