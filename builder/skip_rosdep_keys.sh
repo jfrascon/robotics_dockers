@@ -20,11 +20,10 @@ handle_error() {
 usage() {
     cat <<EOF
 Usage:
-  ${script_name} KEYS_FILE
+  ${script_name} KEY [KEY...]
 
 Positional arguments:
-  KEYS_FILE  Path to a file containing rosdep keys to ignore, one per line.
-             Empty lines and lines starting with '#' are ignored.
+  KEY  One or more rosdep keys to ignore.
 
 Options:
   --help           Show this help and exit
@@ -50,8 +49,7 @@ script_name="$(basename "${script}")"
 # This script writes under /etc/ros, so it must run as root.
 [ "$(id --user)" -ne 0 ] && handle_error 1 "root user must be active to run the script '${script_name}'"
 
-# Process options, and if --help is present, show usage and exit. The remaining arguments are
-# expected to be the keys CSV.
+# Process options; --help shows usage and exits.
 for arg in "$@"; do
     case "${arg}" in
     --help | -h)
@@ -61,32 +59,20 @@ for arg in "$@"; do
     esac
 done
 
-# Check that there is exactly one argument, which is expected to be the path to the keys file.
-[ "$#" -gt 1 ] && handle_error 1 "Too many arguments"
+[ "$#" -eq 0 ] && handle_error 1 "No rosdep keys provided"
 
-# The first argument is expected to be the path to the keys file.
-keys_file="${1:-}"
-
-[ -z "${keys_file}" ] && handle_error 1 "No keys file provided"
-
-[ ! -f "${keys_file}" ] && handle_error 1 "Keys file '${keys_file}' not found"
-
-# Read keys from the file, one per line. Empty lines and comments are skipped.
+# Normalize the keys passed as positional arguments.
 normalized_keys=()
-while IFS= read -r raw_key || [ -n "${raw_key}" ]; do
-    # Skip empty lines and comments.
-    [[ -z "${raw_key}" || "${raw_key}" =~ ^# ]] && continue
-
+for raw_key in "$@"; do
     trimmed_key="$(trim "${raw_key}")"
     [ -z "${trimmed_key}" ] && continue
-
     normalized_keys+=("${trimmed_key}: {ubuntu: []}")
-done <"${keys_file}"
+done
 
 # If there are no normalized keys, log a message and exit with a zero status, since there is
 # nothing to do.
 [ "${#normalized_keys[@]}" -eq 0 ] && {
-    log info "No rosdep keys found in '${keys_file}'. Nothing to do."
+    log info "No rosdep keys to register. Nothing to do."
     exit 0
 }
 

@@ -89,19 +89,22 @@ num_distros="$(echo "${ros_distro}" | wc -w)"
 [ "${num_distros}" -gt 1 ] && handle_error 1 "More than one ROS_DISTRO found: ${ros_distro}"
 [ "${ROS_DISTRO}" != "${ros_distro}" ] && handle_error 1 "Found ROS_DISTRO '${ros_distro}', expected ROS_DISTRO '${ROS_DISTRO}'"
 
-# Manage rosdep ignored keys.
-etc_rosdep_dir="/etc/ros/rosdep"
-etc_rosdep_sources_dir="${etc_rosdep_dir}/sources.list.d"
-mkdir --verbose --parent "${etc_rosdep_sources_dir}"
+# Rosdep keys to ignore.
+# Add one key per line. Empty lines and lines starting with '#' are ignored.
+# Ref: https://github.com/ros-infrastructure/rosdep/issues/649
 
-rosdep_ignored_keys_src="/tmp/context/.resources/rosdep_ignored_keys.txt"
+# Skip connextdds and gurumdds middleware packages — not available in the
+# standard Ubuntu/ROS2 apt repositories; rosdep would fail trying to resolve them.
+rosdep_ignored_keys=(
+    rmw_connextdds
+    rmw_connextdds_common
+    rti-connext-dds-cmake-module
+    rmw_gurumdds_cpp
+    gurumdds_cmake_module
+)
 
-if [ -f "${rosdep_ignored_keys_src}" ]; then
-    [ ! -f /tmp/context/.resources/skip_rosdep_keys.sh ] && \
-        handle_error 1 "File 'rosdep_ignored_keys.txt' found but 'skip_rosdep_keys.sh' is missing from context"
-    bash /tmp/context/.resources/skip_rosdep_keys.sh "${rosdep_ignored_keys_src}" || \
-        handle_error 1 "Failed to run 'skip_rosdep_keys.sh'"
-fi
+bash /tmp/context/.resources/skip_rosdep_keys.sh "${rosdep_ignored_keys[@]}" || \
+    handle_error 1 "Failed to run 'skip_rosdep_keys.sh'"
 
 bash /tmp/context/.resources/rosdep_init_update_install.sh \
     "${ROS_DISTRO}" "${IMAGE_MAIN_USER}" --pkgs-dir /tmp/pkgs_dir || \
