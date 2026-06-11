@@ -25,20 +25,8 @@ if __name__ == "__main__":
         ros_version: str,
         img_id_to_build: str,
         use_host_nvidia_driver: bool,
-        ros_packages_file: Path,
         extra_ros_env_vars: str,
     ) -> dict[str, list[str | dict[str, str] | bool]]:
-        if not ros_packages_file.is_file():
-            print(f"File '{str(ros_packages_file)}' not found.")
-            sys.exit(1)
-
-        with ros_packages_file.open("r") as f:
-            ros_packages = f.read()
-
-        if not ros_packages.strip():
-            print(f"File '{str(ros_packages_file)}' is empty.")
-            sys.exit(1)
-
         # Items to use.
         # Source is relative to base_dir, destination relative to context_path)
         # (src_name, dst_name, is_executable)
@@ -86,7 +74,7 @@ if __name__ == "__main__":
             ".resources/deduplicate_path": ["deduplicate_path", True],
             ".resources/install_base_system.sh": ["install_base_system.sh", True],
             ".resources/install_extra_pkgs.sh": ["install_extra_pkgs.sh", True],
-            ".resources/install_ros.sh": ["install_ros.j2", {"ros_packages": ros_packages}, True],
+            ".resources/install_ros.sh": [f"install_ros{ros_version}.sh", True],
             ".resources/rosbuild": [f"ros{ros_version}build", True],
             ".resources/rosdep_init_update_install.sh": ["rosdep_init_update_install.sh", True],
             # extra.d/ templates
@@ -448,9 +436,7 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    # Read ROS packages from the file 'packages_ros{ros_version}.txt'
     root_path = Path(__file__).expanduser().resolve().parent
-    ros_packages_file = root_path.joinpath(f"packages_ros{ros_version}.txt")
 
     if ros_version == 1:
         extra_ros_env_vars_file = root_path.joinpath("env_vars_ros1.txt")
@@ -489,7 +475,6 @@ if __name__ == "__main__":
             ros_version,
             img_id_to_build,
             args.use_host_nvidia_driver,
-            ros_packages_file,
             extra_ros_env_vars,
         ),
         context_dir,
