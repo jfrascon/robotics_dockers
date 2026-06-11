@@ -98,10 +98,9 @@ if __name__ == "__main__":
                 True,
             ]
 
-        # ROS1 bashrc uses {{ ros_distro }} Jinja2 variable.
+        # ROS1 bashrc is plain bash — no Jinja2 variables.
         items_to_install[".resources/bashrc.user"] = [
-            "bashrc.user.ros1.j2",
-            {"ros_distro": ros_distro},
+            "bashrc.user.ros1",
             True,
         ]
 
