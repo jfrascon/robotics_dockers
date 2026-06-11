@@ -95,7 +95,7 @@ num_distros="$(echo "${ros_distro}" | wc -w)"
 [ "${ROS_DISTRO}" != "${ros_distro}" ] && handle_error 1 "Found ROS_DISTRO '${ros_distro}', expected ROS_DISTRO '${ROS_DISTRO}'"
 
 # Rosdep keys to ignore.
-# Add one key per line. Empty lines and lines starting with '#' are ignored.
+# Add one key per array element to extend the list.
 # Ref: https://github.com/ros-infrastructure/rosdep/issues/649
 
 # Skip connextdds and gurumdds middleware packages — not available in the
