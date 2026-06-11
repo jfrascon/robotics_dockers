@@ -7,7 +7,10 @@
 # (the Dockerfile copies entrypoint.d/ into that user's home during build).
 # For any other user the directory won't exist and we fall through to a plain exec "$@".
 shopt -s nullglob extglob
-_ENTRYPOINT_DIR="${HOME}/.entrypoint.d"
+# Use IMAGE_MAIN_USER_HOME (set as Docker ENV) rather than $HOME so the
+# entrypoint.d/ directory is found even when the process starts as root
+# (where $HOME=/root and the entrypoint.d/ lives under the dev user's home).
+_ENTRYPOINT_DIR="${IMAGE_MAIN_USER_HOME:-${HOME}}/.entrypoint.d"
 
 if [ ! -d "${_ENTRYPOINT_DIR}" ]; then
     exec "$@"
