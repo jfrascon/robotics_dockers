@@ -61,6 +61,9 @@ RUN /tmp/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" &
 COPY --chmod=755 .resources/install_ros.sh /tmp/
 RUN /tmp/install_ros.sh "${ROS_DISTRO}" "${ROS_VERSION}" && rm -f /tmp/install_ros.sh
 
+# Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
+COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
+
 # Install extra packages from extra.d/ (apt, pip, Rust).
 # Uses --mount so neither the script nor extra.d/ are added as layers.
 RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
@@ -103,8 +106,8 @@ rosdep_ignored_keys=(
     gurumdds_cmake_module
 )
 
-bash /tmp/context/.resources/skip_rosdep_keys.sh "${rosdep_ignored_keys[@]}" || \
-    handle_error 1 "Failed to run 'skip_rosdep_keys.sh'"
+bash /usr/local/bin/skip_rosdep_keys "${rosdep_ignored_keys[@]}" || \
+    handle_error 1 "Failed to run 'skip_rosdep_keys'"
 
 bash /tmp/context/.resources/rosdep_init_update_install.sh \
     "${ROS_DISTRO}" "${IMAGE_MAIN_USER}" --pkgs-dir /tmp/pkgs_dir || \
