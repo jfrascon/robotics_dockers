@@ -100,8 +100,8 @@ if __name__ == "__main__":
                 "colcon_mixin_metadata.sh",
                 True,
             ]
-            items_to_install[".resources/skip_rosdep_keys.sh"] = [
-                "skip_rosdep_keys.sh",
+            items_to_install[".resources/skip_rosdep_keys"] = [
+                "skip_rosdep_keys",
                 True,
             ]
 
