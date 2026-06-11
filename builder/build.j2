@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # Main execution block
     # ----------------------------------------------------------------------------------------------
     parser = argparse.ArgumentParser(
-        description="Builds the Docker image '{{ img_id }}' using the base image '{{ base_img }}', with active user '{{ image_main_user }}' and 'ROS{{ ros_version }}-{{ ros_distro }}'",
+        description="Builds the Docker image '{{ img_id }}' using the base image '{{ base_img }}', with active user '{{ image_main_user }}' and 'ROS2-{{ ros_distro }}'",
         allow_abbrev=False,  # Disable prefix matching
         add_help=False,  # Add custom help message
         formatter_class=lambda prog: argparse.RawTextHelpFormatter(prog, max_help_position=38),
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--meta-title",
         type=str,
-        default=f"Docker image with 'ROS{{ ros_version }}-{{ ros_distro }}'",
+        default=f"Docker image with 'ROS2-{{ ros_distro }}'",
         help='Title to include in the image\'s metadata (e.g "App")',
     )
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     cmd.append(str(context_dir))
 
     print(
-        f"Building the Docker image '{img_id_to_build}' using the base image '{base_img}', with active user '{image_main_user}' and 'ROS{{ ros_version }}-{{ ros_distro }}'"
+        f"Building the Docker image '{img_id_to_build}' using the base image '{base_img}', with active user '{image_main_user}' and 'ROS2-{{ ros_distro }}'"
     )
     print("Executing command:")
     print(" ".join(cmd))

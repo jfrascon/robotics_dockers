@@ -13,15 +13,14 @@ from jinja2 import Environment, FileSystemLoader
 
 if __name__ == "__main__":
     ROS_DISTROS: dict[str, str] = {
-        "humble": "2:22.04",
-        "jazzy": "2:24.04",
+        "humble": "22.04",
+        "jazzy": "24.04",
     }
 
     def create_items_to_install(
         base_img: str,
         image_main_user: str,
         ros_distro: str,
-        ros_version: str,
         img_id_to_build: str,
         use_host_nvidia_driver: bool,
     ) -> dict[str, list[str | dict[str, str] | bool]]:
@@ -38,7 +37,6 @@ if __name__ == "__main__":
                     "image_main_user": image_main_user,
                     "image_main_user_home": f"/home/{image_main_user}",
                     "ros_distro": ros_distro,
-                    "ros_version": ros_version,
                 },
                 False,
             ],
@@ -49,7 +47,6 @@ if __name__ == "__main__":
                     "img_id": img_id_to_build,
                     "image_main_user": image_main_user,
                     "ros_distro": ros_distro,
-                    "ros_version": ros_version,
                 },
                 True,
             ],
@@ -126,16 +123,12 @@ if __name__ == "__main__":
         # Sort by ROS version, then Ubuntu version, then distro name for consistent help output
         sorted_distros = sorted(
             ROS_DISTROS.items(),
-            key=lambda item: (
-                int(item[1].split(":")[0]),
-                item[1].split(":")[1],
-                item[0],
-            ),
+            key=lambda item: (item[1], item[0]),
         )
 
         for key, value in sorted_distros:
-            ros_version, ubuntu_version = value.split(":")
-            lines.append(f"    {key:<6}: ros{ros_version}, ubuntu {ubuntu_version}.")
+            ubuntu_version = value
+            lines.append(f"    {key:<6}: ros2, ubuntu {ubuntu_version}.")
 
         return "\n".join(lines)
 
@@ -393,7 +386,7 @@ if __name__ == "__main__":
         )
         sys.exit(1)
 
-    ros_version, ubuntu_version = ROS_DISTROS[ros_distro].split(":")
+    ubuntu_version = ROS_DISTROS[ros_distro]
 
     if not base_img:
         base_img = f"ubuntu:{ubuntu_version}"
@@ -407,7 +400,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         print(
-            f"No base image specified, defaulting to '{base_img}' for 'ROS{ros_version}-{ros_distro}'"
+            f"No base image specified, defaulting to '{base_img}' for 'ROS2-{ros_distro}'"
         )
     elif not is_valid_docker_img_name(base_img):
         print(f"Error: Invalid Docker base image name: '{base_img}'", file=sys.stderr)
@@ -440,7 +433,6 @@ if __name__ == "__main__":
             base_img,
             image_main_user,
             ros_distro,
-            ros_version,
             img_id_to_build,
             args.use_host_nvidia_driver,
         ),
