@@ -14,7 +14,6 @@ from jinja2 import Environment, FileSystemLoader
 
 if __name__ == "__main__":
     ROS_DISTROS: dict[str, str] = {
-        "noetic": "1:20.04",
         "humble": "2:22.04",
         "jazzy": "2:24.04",
     }
@@ -90,7 +89,7 @@ if __name__ == "__main__":
             ".resources/install_base_system.sh": ["install_base_system.sh", True],
             ".resources/install_extra_pkgs.sh": ["install_extra_pkgs.sh", True],
             ".resources/install_ros.sh": ["install_ros.j2", {"ros_packages": ros_packages}, True],
-            ".resources/rosbuild.sh": [f"ros{ros_version}build.sh", True],
+            ".resources/rosbuild.sh": ["ros2build.sh", True],
             ".resources/rosdep_init_update_install.sh": ["rosdep_init_update_install.sh", True],
             # extra.d/ templates
             ".resources/extra.d/apt_packages.sh": ["extra.d/apt_packages.sh", True],
@@ -127,19 +126,11 @@ if __name__ == "__main__":
                 True,
             ]
 
-        if ros_version == "1":
-            # ROS1 bashrc still uses {{ ros_distro }} Jinja2 variable.
-            items_to_install[".resources/bashrc.user"] = [
-                "bashrc.user.ros1.j2",
-                {"ros_distro": ros_distro},
-                True,
-            ]
-        else:
-            # ROS2 bashrc is plain bash — no Jinja2 variables.
-            items_to_install[".resources/bashrc.user"] = [
-                "bashrc.user.ros2",
-                True,
-            ]
+        # ROS2 bashrc is plain bash — no Jinja2 variables.
+        items_to_install[".resources/bashrc.user"] = [
+            "bashrc.user.ros2",
+            True,
+        ]
 
         # If not using the host NVIDIA driver, provide Mesa packages script as
         # extra.d/apt_packages.sh so the user can enable/extend it before building.
@@ -459,25 +450,11 @@ if __name__ == "__main__":
     root_path = Path(__file__).expanduser().resolve().parent
     ros_packages_file = root_path.joinpath(f"packages_ros{ros_version}.txt")
 
-    if ros_version == 1:
-        extra_ros_env_vars_file = root_path.joinpath("env_vars_ros1.txt")
-
-        if not extra_ros_env_vars_file.is_file():
-            print(f"File '{str(extra_ros_env_vars_file)}' not found.")
-            sys.exit(1)
-
-        with extra_ros_env_vars_file.open("r") as f:
-            extra_ros_env_vars = f.read()
-
-        if not extra_ros_env_vars.strip():
-            print(f"File '{str(extra_ros_env_vars_file)}' is empty.")
-            sys.exit(1)
-    else:
-        jinja2_env = Environment(
-            loader=FileSystemLoader(root_path), trim_blocks=True, lstrip_blocks=True
-        )
-        jinja2_template = jinja2_env.get_template("env_vars_ros2.j2")
-        extra_ros_env_vars = jinja2_template.render({"ros_distro": ros_distro})
+    jinja2_env = Environment(
+        loader=FileSystemLoader(root_path), trim_blocks=True, lstrip_blocks=True
+    )
+    jinja2_template = jinja2_env.get_template("env_vars_ros2.j2")
+    extra_ros_env_vars = jinja2_template.render({"ros_distro": ros_distro})
 
     # with tempfile.TemporaryDirectory(prefix="context_", dir="/tmp") as tmp_dir:
     if args.output:
