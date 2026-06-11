@@ -13,8 +13,9 @@ Generate a ready-to-use Docker image with ROS 2 and a configured development use
 5. [Customizing the output](#customizing-the-output)
 6. [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
 7. [NVIDIA GPU support](#nvidia-gpu-support)
-8. [Running the container](#running-the-container)
-9. [Examples](#examples)
+8. [rosbuild — colcon build wrapper](#rosbuild--colcon-build-wrapper)
+9. [Running the container](#running-the-container)
+10. [Examples](#examples)
 
 ---
 
@@ -266,6 +267,45 @@ stat -c %g /dev/dri/renderD128
 
 # Add it to a .env file next to docker-compose-dev.yaml:
 echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
+```
+
+---
+
+## rosbuild — colcon build wrapper
+
+`rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build`
+with sensible defaults enabled out of the box:
+
+| Default behaviour | colcon equivalent |
+|---|---|
+| `--merge-install` | merges all install spaces into a single `install/` directory |
+| `--symlink-install` | symlinks Python files and other resources instead of copying |
+| `--mixin release` | enables release-mode compiler flags via colcon mixins |
+| `--mixin compile-commands` | generates `compile_commands.json` for IDEs/clangd |
+| `--parallel-workers N` | uses half the available CPU cores (rounded up) |
+| `-Wall -Wextra -Wpedantic ...` | injects common C++ warning flags via `CMAKE_CXX_FLAGS` |
+
+So instead of:
+```bash
+colcon build --merge-install --symlink-install --mixin release --mixin compile-commands
+```
+
+You just run:
+```bash
+rosbuild
+```
+
+Flags to opt out of the defaults:
+
+| Flag | Effect |
+|---|---|
+| `--no-merge-install` | disables `--merge-install` |
+| `--no-symlink-install` | disables `--symlink-install` |
+
+Any other `colcon build` argument is passed through unchanged:
+```bash
+# Build only specific packages in debug mode:
+rosbuild --packages-select my_pkg --no-symlink-install --mixin debug
 ```
 
 ---
