@@ -127,11 +127,19 @@ if __name__ == "__main__":
                 True,
             ]
 
-        items_to_install[".resources/bashrc.user"] = [
-            f"bashrc.user.ros{ros_version}.j2",
-            {"ros_distro": ros_distro},
-            True,
-        ]
+        if ros_version == "1":
+            # ROS1 bashrc still uses {{ ros_distro }} Jinja2 variable.
+            items_to_install[".resources/bashrc.user"] = [
+                "bashrc.user.ros1.j2",
+                {"ros_distro": ros_distro},
+                True,
+            ]
+        else:
+            # ROS2 bashrc is plain bash — no Jinja2 variables.
+            items_to_install[".resources/bashrc.user"] = [
+                "bashrc.user.ros2",
+                True,
+            ]
 
         # If not using the host NVIDIA driver, provide Mesa packages script as
         # extra.d/apt_packages.sh so the user can enable/extend it before building.
