@@ -412,7 +412,7 @@ if __name__ == "__main__":
 
     if not image_main_user or " " in image_main_user:
         print(
-            f"Error: Invalid user '{image_main_user}'. No whitepaces allowed",
+            f"Error: Invalid user '{image_main_user}'. No whitespaces allowed",
             file=sys.stderr,
         )
         sys.exit(1)
