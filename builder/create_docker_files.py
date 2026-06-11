@@ -2,7 +2,6 @@
 
 import argparse
 import getpass
-import os
 import re
 import shutil
 import subprocess
@@ -79,8 +78,6 @@ if __name__ == "__main__":
                     "img_ssh_dir": f"/home/{image_main_user}/.ssh",
                     "img_gitconfig_file": f"/home/{image_main_user}/.gitconfig",
                     "use_host_nvidia_driver": use_host_nvidia_driver,
-                    "host_uid": f"{os.getuid()}",
-                    "host_upgid": f"{os.getgid()}",
                 },
                 False,
             ],
