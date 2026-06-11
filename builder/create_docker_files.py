@@ -87,7 +87,7 @@ if __name__ == "__main__":
             ".resources/install_base_system.sh": ["install_base_system.sh", True],
             ".resources/install_extra_pkgs.sh": ["install_extra_pkgs.sh", True],
             ".resources/install_ros.sh": ["install_ros.j2", {"ros_packages": ros_packages}, True],
-            ".resources/rosbuild.sh": [f"ros{ros_version}build.sh", True],
+            ".resources/rosbuild": [f"ros{ros_version}build", True],
             ".resources/rosdep_init_update_install.sh": ["rosdep_init_update_install.sh", True],
             # extra.d/ templates
             ".resources/extra.d/apt_packages.sh": ["extra.d/apt_packages.sh", True],

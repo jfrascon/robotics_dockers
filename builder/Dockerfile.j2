@@ -37,7 +37,7 @@ required_context_paths=(
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
     .resources/entrypoint.sh
-    .resources/rosbuild.sh
+    .resources/rosbuild
     .resources/rosdep_init_update_install.sh
 {% if ros_version == "2" %}
     .resources/colcon_mixin_metadata.sh
@@ -152,8 +152,8 @@ install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
 install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path"
 
-log "Installing file '/usr/local/bin/rosbuild.sh'"
-install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild.sh /usr/local/bin/rosbuild.sh
+log "Installing file '/usr/local/bin/rosbuild'"
+install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild
 
 # Install .bash_aliases.user if present in context.
 if [ -e /tmp/context/.resources/bash_aliases.user ]; then
