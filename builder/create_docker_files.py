@@ -25,7 +25,6 @@ if __name__ == "__main__":
         ros_version: str,
         img_id_to_build: str,
         use_host_nvidia_driver: bool,
-        extra_ros_env_vars: str,
     ) -> dict[str, list[str | dict[str, str] | bool]]:
         # Items to use.
         # Source is relative to base_dir, destination relative to context_path)
@@ -41,7 +40,6 @@ if __name__ == "__main__":
                     "image_main_user_home": f"/home/{image_main_user}",
                     "ros_distro": ros_distro,
                     "ros_version": ros_version,
-                    "extra_ros_env_vars": extra_ros_env_vars,
                 },
                 False,
             ],
@@ -436,12 +434,6 @@ if __name__ == "__main__":
 
     root_path = Path(__file__).expanduser().resolve().parent
 
-    jinja2_env = Environment(
-        loader=FileSystemLoader(root_path), trim_blocks=True, lstrip_blocks=True
-    )
-    jinja2_template = jinja2_env.get_template("env_vars_ros2.j2")
-    extra_ros_env_vars = jinja2_template.render({"ros_distro": ros_distro})
-
     # with tempfile.TemporaryDirectory(prefix="context_", dir="/tmp") as tmp_dir:
     if args.output:
         context_dir = Path(args.output).expanduser().resolve()
@@ -459,7 +451,6 @@ if __name__ == "__main__":
             ros_version,
             img_id_to_build,
             args.use_host_nvidia_driver,
-            extra_ros_env_vars,
         ),
         context_dir,
     )
