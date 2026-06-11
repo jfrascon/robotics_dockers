@@ -78,7 +78,7 @@ if __name__ == "__main__":
             ".resources/extra.d/rust_packages.txt": ["extra.d/rust_packages.txt", False],
         }
 
-        items_to_install["resources/skip_rosdep_keys"] = [
+        items_to_install[".resources/skip_rosdep_keys"] = [
             "skip_rosdep_keys",
             True,
         ]
