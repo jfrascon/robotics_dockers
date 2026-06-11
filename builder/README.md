@@ -337,25 +337,17 @@ be owned by you on the host.
 
 ## CycloneDDS host tuning
 
-ROS 2 uses a DDS middleware for node communication. When large messages are
-exchanged (point clouds, images, sensor data) the default Linux kernel network
-buffers are too small and CycloneDDS will log errors or silently drop data.
+ROS 2 uses a DDS middleware for node communication. When large messages are exchanged (point clouds, images, sensor data) the default Linux kernel network buffers are too small and CycloneDDS will log errors or silently drop data.
 
-The official tuning guide covers this:
-[ROS 2 DDS tuning — CycloneDDS](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
+The official tuning guide covers this: [ROS 2 DDS tuning — CycloneDDS](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
 
 **Why these settings go on the host, not inside the container**
 
-The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux
-kernel parameters controlled via `sysctl`. A Docker container shares the host
-kernel — it cannot set `sysctl` values that affect the whole system from inside
-(and doing so would require `--privileged`, which is a security risk). The
-host is the right place for kernel-level tuning.
+The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux kernel parameters controlled via `sysctl`. A Docker container shares the host kernel — it cannot set `sysctl` values that affect the whole system from inside (and doing so would require `--privileged`, which is a security risk). The host is the right place for kernel-level tuning.
 
 **Files provided**
 
-The `dds/cyclonedds/` directory contains two `sysctl.d` drop-in files ready
-to install on the host:
+The `dds/cyclonedds/` directory contains two `sysctl.d` drop-in files ready to install on the host:
 
 | File | What it sets |
 |---|---|
@@ -378,14 +370,9 @@ sysctl net.ipv4.ipfrag_time
 sysctl net.ipv4.ipfrag_high_thresh
 ```
 
-The settings persist across reboots because `sysctl.d` files are loaded at
-startup. Without them, CycloneDDS will work for small messages but will fail
-or lose data when messages exceed the default 208 KiB receive buffer.
+The settings persist across reboots because `sysctl.d` files are loaded at startup. Without them, CycloneDDS will work for small messages but will fail or lose data when messages exceed the default 208 KiB receive buffer.
 
-> **Note:** If you configure CycloneDDS to use a large receive buffer in its
-> XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have
-> not applied these host settings, the middleware will log an error at startup
-> and fall back to the system default — often causing silent data loss.
+> **Note:** If you configure CycloneDDS to use a large receive buffer in its XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have not applied these host settings, the middleware will log an error at startup and fall back to the system default — often causing silent data loss.
 
 ---
 
