@@ -134,6 +134,11 @@ repositories):
 apt-get update
 apt-get install -y --no-install-recommends libopencv-dev ros-jazzy-moveit
 
+# Adding a third-party repository:
+curl -sSL https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
+add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
+apt-get update && apt-get install -y clang-18
+
 # Ignore a custom rosdep key not available in standard repositories:
 skip_rosdep_keys my_private_package another_unavailable_key
 ```
