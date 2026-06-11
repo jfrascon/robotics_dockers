@@ -16,7 +16,9 @@ Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-
     - [Customizing the output](#customizing-the-output)
     - [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
     - [NVIDIA GPU support](#nvidia-gpu-support)
+    - [rosbuild — colcon build wrapper](#rosbuild--colcon-build-wrapper)
     - [Running the container](#running-the-container)
+    - [CycloneDDS host tuning](#cyclonedds-host-tuning)
     - [Examples](#examples)
 4. [Launching graphical user interfaces (GUIs) in Docker containers](#launching-graphical-user-interfaces-guis-in-docker-containers)
 
@@ -196,8 +198,9 @@ After running `create_docker_files.py`, the output directory contains a
 
 #### `extra.d/apt_packages.sh`
 
-Shell script executed as root after ROS is installed. Add apt packages,
-third-party repositories or any other system-level setup here.
+Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here.
+
+The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys` inside the image and can be called from this script to register additional rosdep keys that should be ignored (useful for packages not available in the standard Ubuntu/ROS2 repositories):
 
 ```bash
 #!/usr/bin/env bash
@@ -208,6 +211,9 @@ apt-get install -y --no-install-recommends libopencv-dev ros-jazzy-moveit
 curl -sSL https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
 add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
 apt-get update && apt-get install -y clang-18
+
+# Ignore a custom rosdep key not available in standard repositories:
+skip_rosdep_keys my_private_package another_unavailable_key
 ```
 
 > If you generated without `--use-host-nvidia-driver`, this file already
@@ -320,6 +326,44 @@ echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 
 ---
 
+### rosbuild — colcon build wrapper
+
+`rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build` with sensible defaults enabled out of the box:
+
+| Default behaviour | colcon equivalent |
+|---|---|
+| `--merge-install` | merges all install spaces into a single `install/` directory |
+| `--symlink-install` | symlinks Python files and other resources instead of copying |
+| `--mixin release` | enables release-mode compiler flags via colcon mixins |
+| `--mixin compile-commands` | generates `compile_commands.json` for IDEs/clangd |
+| `--parallel-workers N` | uses half the available CPU cores (rounded up) |
+| `-Wall -Wextra -Wpedantic ...` | injects common C++ warning flags via `CMAKE_CXX_FLAGS` |
+
+So instead of:
+```bash
+colcon build --merge-install --symlink-install --mixin release --mixin compile-commands
+```
+
+You just run:
+```bash
+rosbuild
+```
+
+Flags to opt out of the defaults:
+
+| Flag | Effect |
+|---|---|
+| `--no-merge-install` | disables `--merge-install` |
+| `--no-symlink-install` | disables `--symlink-install` |
+
+Any other `colcon build` argument is passed through unchanged:
+```bash
+# Build only specific packages in debug mode:
+rosbuild --packages-select my_pkg --no-symlink-install --mixin debug
+```
+
+---
+
 ### Running the container
 
 The output directory contains a `docker-compose-dev.yaml`. Copy it next to your workspace and create a `.env` file with the required variables:
@@ -338,6 +382,47 @@ docker compose -f docker-compose-dev.yaml up
 ```
 
 The container starts as root, remaps the internal user to your `HOST_UID`/`HOST_UPGID`, and then drops to the development user. Files created inside the container will be owned by you on the host.
+
+---
+
+### CycloneDDS host tuning
+
+ROS 2 uses a DDS middleware for node communication. When large messages are exchanged (point clouds, images, sensor data) the default Linux kernel network buffers are too small and CycloneDDS will log errors or silently drop data.
+
+The official tuning guide covers this: [ROS 2 DDS tuning — CycloneDDS](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
+
+**Why these settings go on the host, not inside the container**
+
+The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux kernel parameters controlled via `sysctl`. A Docker container shares the host kernel — it cannot set `sysctl` values that affect the whole system from inside (and doing so would require `--privileged`, which is a security risk). The host is the right place for kernel-level tuning.
+
+**Files provided**
+
+The `dds/cyclonedds/` directory contains two `sysctl.d` drop-in files ready to install on the host:
+
+| File | What it sets |
+|---|---|
+| `10-cyclonedds.conf` | `net.core.rmem_max=2147483647` (2 GiB receive buffer) |
+| `10-ros2-cross-vendor-tuning.conf` | `net.ipv4.ipfrag_time=3`, `net.ipv4.ipfrag_high_thresh=134217728` (128 MiB) |
+
+**Installing on the host**
+
+```bash
+# Copy the files to sysctl.d
+sudo cp dds/cyclonedds/10-cyclonedds.conf /etc/sysctl.d/
+sudo cp dds/cyclonedds/10-ros2-cross-vendor-tuning.conf /etc/sysctl.d/
+
+# Apply immediately without rebooting
+sudo sysctl --system
+
+# Verify
+sysctl net.core.rmem_max
+sysctl net.ipv4.ipfrag_time
+sysctl net.ipv4.ipfrag_high_thresh
+```
+
+The settings persist across reboots because `sysctl.d` files are loaded at startup. Without them, CycloneDDS will work for small messages but will fail or lose data when messages exceed the default 208 KiB receive buffer.
+
+> **Note:** If you configure CycloneDDS to use a large receive buffer in its XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have not applied these host settings, the middleware will log an error at startup and fall back to the system default — often causing silent data loss.
 
 ---
 
