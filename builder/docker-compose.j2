@@ -92,8 +92,16 @@ services:
       {% endif %}
 
       # Used by the entrypoint to remap the container user and then exec with gosu.
-      - HOST_UID={{ host_uid }}
-      - HOST_UPGID={{ host_upgid }}
+      # How to provide HOST_UID and HOST_UPGID (choose one):
+      #   1. .env file next to this docker-compose file:
+      #        HOST_UID=1000
+      #        HOST_UPGID=1000
+      #   2. Export in your shell before running docker compose:
+      #        export HOST_UID=$(id -u) HOST_UPGID=$(id -g)
+      #   3. Inline when running docker compose:
+      #        HOST_UID=$(id -u) HOST_UPGID=$(id -g) docker compose up
+      - HOST_UID=${HOST_UID?HOST_UID must be set. Run: export HOST_UID=$(id -u)}
+      - HOST_UPGID=${HOST_UPGID?HOST_UPGID must be set. Run: export HOST_UPGID=$(id -g)}
 
     # init: true enables a tiny init (tini) as PID 1 inside the container.
     # It forwards signals (SIGTERM/SIGINT) to the app and reaps zombie
