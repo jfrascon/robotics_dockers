@@ -80,15 +80,14 @@ if __name__ == "__main__":
             ".resources/extra.d/rust_packages.txt": ["extra.d/rust_packages.txt", False],
         }
 
-        if ros_version == "2":
-            items_to_install[".resources/colcon_mixin_metadata.sh"] = [
-                "colcon_mixin_metadata.sh",
-                True,
-            ]
-            items_to_install[".resources/skip_rosdep_keys"] = [
-                "skip_rosdep_keys",
-                True,
-            ]
+        items_to_install[".resources/colcon_mixin_metadata.sh"] = [
+            "colcon_mixin_metadata.sh",
+            True,
+        ]
+        items_to_install[".resources/skip_rosdep_keys"] = [
+            "skip_rosdep_keys",
+            True,
+        ]
 
         items_to_install[".resources/entrypoint.sh"] = ["entrypoint.sh", True]
         items_to_install[".resources/entrypoint.d/00-checks.sh"] = [

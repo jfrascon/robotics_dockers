@@ -59,7 +59,7 @@ COPY --chmod=755 .resources/install_base_system.sh /tmp/
 RUN /tmp/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" && rm -f /tmp/install_base_system.sh
 
 COPY --chmod=755 .resources/install_ros.sh /tmp/
-RUN /tmp/install_ros.sh "${ROS_DISTRO}" "${ROS_VERSION}" && rm -f /tmp/install_ros.sh
+RUN /tmp/install_ros.sh "${ROS_DISTRO}" && rm -f /tmp/install_ros.sh
 
 # Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
 COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
