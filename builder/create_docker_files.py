@@ -104,10 +104,6 @@ if __name__ == "__main__":
                 "skip_rosdep_keys.sh",
                 True,
             ]
-            items_to_install[".resources/rosdep_ignored_keys.txt"] = [
-                "rosdep_ignored_keys_ros2.txt",
-                False,
-            ]
 
         items_to_install[".resources/entrypoint.sh"] = ["entrypoint.sh", True]
         items_to_install[".resources/entrypoint.d/00-checks.sh"] = [
