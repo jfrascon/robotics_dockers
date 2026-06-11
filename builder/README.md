@@ -118,18 +118,13 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ## Customizing the output
 
-After running `create_docker_files.py`, the output directory contains a
-`.resources/extra.d/` folder with three files you can edit before building:
+After running `create_docker_files.py`, the output directory contains a `.resources/extra.d/` folder with three files you can edit before building:
 
 ### `extra.d/apt_packages.sh`
 
-Shell script executed as root after ROS is installed. Add apt packages,
-third-party repositories or any other system-level setup here.
+Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here.
 
-The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys`
-and can be called from this script to register additional rosdep keys that
-should be ignored (useful for packages not available in the standard Ubuntu/ROS2
-repositories):
+The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys` and can be called from this script to register additional rosdep keys that should be ignored (useful for packages not available in the standard Ubuntu/ROS2 repositories):
 
 ```bash
 #!/usr/bin/env bash
@@ -145,8 +140,7 @@ apt-get update && apt-get install -y clang-18
 skip_rosdep_keys my_private_package another_unavailable_key
 ```
 
-> If you generated without `--use-host-nvidia-driver`, this file already
-> contains the default Mesa packages script. Edit it as needed.
+> If you generated without `--use-host-nvidia-driver`, this file already contains the default Mesa packages script. Edit it as needed.
 
 ### `extra.d/requirements.txt`
 
@@ -173,21 +167,15 @@ fd-find
 source: broot --features clipboard
 ```
 
-If the file contains only comments or blank lines, the Rust toolchain is
-**not** installed.
+If the file contains only comments or blank lines, the Rust toolchain is **not** installed.
 
 ---
 
 ## Startup scripts (entrypoint.d)
 
-When the container starts, the custom entrypoint runs all scripts found in
-`~/.entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are
-**sourced** (they run in the same process and can set environment variables
-used by later scripts). Scripts with a `.txt` extension are printed to stdout.
+When the container starts, the custom entrypoint runs all scripts found in `~/.entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are **sourced** (they run in the same process and can set environment variables used by later scripts). Scripts with a `.txt` extension are printed to stdout.
 
-Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`,
-where `NN` is **exactly two digits** (e.g. `01`, `50`, `99`). Files that do
-not match this pattern cause the container to abort at startup.
+Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`, where `NN` is **exactly two digits** (e.g. `01`, `50`, `99`). Files that do not match this pattern cause the container to abort at startup.
 
 Two scripts are always included and are mandatory:
 
@@ -204,9 +192,7 @@ When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 ### Adding your own startup scripts
 
-You can add custom scripts to `.resources/entrypoint.d/` **before** running
-`build.py`. They will be copied into the image and executed at every container
-startup.
+You can add custom scripts to `.resources/entrypoint.d/` **before** running `build.py`. They will be copied into the image and executed at every container startup.
 
 ```bash
 # Example: print a banner at startup
@@ -222,24 +208,16 @@ EOF
 
 Rules to follow:
 - Filename must be `NN-name.sh` or `NN-name.txt` with exactly two digits.
-- Do not use `00` (reserved for checks) or `99` (reserved for UID/GID
-  adaptation).
+- Do not use `00` (reserved for checks) or `99` (reserved for UID/GID adaptation).
 - If `--use-host-nvidia-driver` was used, do not use `98` either.
-- `.sh` scripts are sourced — they run in the entrypoint process. Keep them
-  fast and side-effect-free (no `exit`, no long-running commands).
+- `.sh` scripts are sourced — they run in the entrypoint process. Keep them fast and side-effect-free (no `exit`, no long-running commands).
 
 ### Using a base image that has its own entrypoint
 
-This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`),
-which overrides any entrypoint defined by the base image. If the base image
-you chose performs initialization logic that you want to preserve (common with
-NVIDIA images, for example), do not rely on the base entrypoint being called
-automatically. Instead:
+This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), which overrides any entrypoint defined by the base image. If the base image you chose performs initialization logic that you want to preserve (common with NVIDIA images, for example), do not rely on the base entrypoint being called automatically. Instead:
 
-1. Find the relevant script(s) in the base image entrypoint (e.g. inspect the
-   image with `docker run --rm <base_img> cat /path/to/entrypoint_script.sh`).
-2. Copy or adapt that logic into a new `.sh` file in `.resources/entrypoint.d/`
-   using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`).
+1. Find the relevant script(s) in the base image entrypoint (e.g. inspect the image with `docker run --rm <base_img> cat /path/to/entrypoint_script.sh`).
+2. Copy or adapt that logic into a new `.sh` file in `.resources/entrypoint.d/` using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`).
 3. Run `build.py` as usual — the script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:
@@ -256,11 +234,9 @@ docker run --rm --entrypoint cat <base_img> /path/to/entrypoint.sh
 
 ## NVIDIA GPU support
 
-Pass `--use-host-nvidia-driver` when generating. This configures the
-docker-compose file to use `deploy.resources` with the NVIDIA driver.
+Pass `--use-host-nvidia-driver` when generating. This configures the docker-compose file to use `deploy.resources` with the NVIDIA driver.
 
-You also need to provide the GID of the render device so all processes
-(including those started by VS Code) can access `/dev/dri/renderD*`:
+You also need to provide the GID of the render device so all processes (including those started by VS Code) can access `/dev/dri/renderD*`:
 
 ```bash
 # Find the GID on your machine:
@@ -274,8 +250,7 @@ echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 
 ## rosbuild — colcon build wrapper
 
-`rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build`
-with sensible defaults enabled out of the box:
+`rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build` with sensible defaults enabled out of the box:
 
 | Default behaviour | colcon equivalent |
 |---|---|
@@ -313,8 +288,7 @@ rosbuild --packages-select my_pkg --no-symlink-install --mixin debug
 
 ## Running the container
 
-The output directory contains a `docker-compose-dev.yaml`. Copy it next to
-your workspace and create a `.env` file with the required variables:
+The output directory contains a `docker-compose-dev.yaml`. Copy it next to your workspace and create a `.env` file with the required variables:
 
 ```bash
 # .env
@@ -329,9 +303,7 @@ Then:
 docker compose -f docker-compose-dev.yaml up
 ```
 
-The container starts as root, remaps the internal user to your `HOST_UID`/`HOST_UPGID`,
-and then drops to the development user. Files created inside the container will
-be owned by you on the host.
+The container starts as root, remaps the internal user to your `HOST_UID`/`HOST_UPGID`, and then drops to the development user. Files created inside the container will be owned by you on the host.
 
 ---
 
@@ -378,7 +350,4 @@ The settings persist across reboots because `sysctl.d` files are loaded at start
 
 ## Examples
 
-The `examples/` directory contains reference scripts for installing specific
-Mesa driver variants (default, Kisak PPA, Oibaf PPA, locked versions).
-These are not used automatically - copy the relevant parts into your
-`extra.d/apt_packages.sh`.
+The `examples/` directory contains reference scripts for installing specific Mesa driver variants (default, Kisak PPA, Oibaf PPA, locked versions). These are not used automatically - copy the relevant parts into your `extra.d/apt_packages.sh`.
