@@ -11,6 +11,8 @@ LABEL org.opencontainers.image.title="Project Docker Image" \
     org.opencontainers.image.description="A Docker image for development and testing" \
     org.opencontainers.image.authors="anon"
 
+# Build-time configuration variables.
+# These are set early so they are available to all RUN steps during the build.
 ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
     IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
     ROS_DISTRO="{{ ros_distro }}" \
@@ -183,10 +185,9 @@ apt-get clean
 rm -rf /var/lib/apt/lists/* &>/dev/null
 EOF
 
-# Configure timezone and localization settings.
-# - TZ: Set the timezone to UTC to ensure consistent time handling across environments.
-# - LC_ALL, LANG, LANGUAGE: Configure localization to US English and UTF-8 encoding, which helps
-#   avoiding issues with character encoding and ensures compatibility with most tools and libraries.
+# Runtime environment variables.
+# Set after all installation steps to avoid interfering with package configuration
+# (e.g. tzdata reads TZ during installation if set beforehand).
 # Items available for RCUTILS_CONSOLE_OUTPUT_FORMAT:
 # [{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})
 ENV TZ="Etc/UTC" \
