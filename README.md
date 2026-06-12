@@ -265,7 +265,7 @@ When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 | Script | Purpose |
 |---|---|
-| <nobr>`98-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`). In this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host. This is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout. If you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--use-host-nvidia-driver` was used. |
+| <nobr>`98-nvidia-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`). In this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host. This is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout. If you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--use-host-nvidia-driver` was used. |
 
 #### Using a base image that has its own entrypoint
 
@@ -274,7 +274,7 @@ This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), wh
 Instead:
 
 1. Find the relevant script(s) in the base image entrypoint.
-2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**, using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`). `build.py` will copy it into the image automatically.
+2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**, using an appropriate numeric prefix (e.g. `10-print-ros-env.sh`). `build.py` will copy it into the image automatically.
 3. Run `build.py` as usual. The script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:

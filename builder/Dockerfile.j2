@@ -159,7 +159,7 @@ log "Installing entrypoint.d scripts to /etc/entrypoint.d/"
 mkdir --parent /etc/entrypoint.d
 install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/99-uid-gid-adapt.sh /etc/entrypoint.d/99-uid-gid-adapt.sh
 {% if use_host_nvidia_driver %}
-install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/98-gpu-driver-check.sh /etc/entrypoint.d/98-gpu-driver-check.sh
+install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/98-nvidia-gpu-driver-check.sh /etc/entrypoint.d/98-nvidia-gpu-driver-check.sh
 {% endif %}
 
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"

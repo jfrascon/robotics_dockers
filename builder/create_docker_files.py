@@ -93,8 +93,8 @@ if __name__ == "__main__":
             True,
         ]
         if use_host_nvidia_driver:
-            items_to_install[".resources/entrypoint.d/98-gpu-driver-check.sh"] = [
-                "entrypoint.d/98-gpu-driver-check.sh",
+            items_to_install[".resources/entrypoint.d/98-nvidia-gpu-driver-check.sh"] = [
+                "entrypoint.d/98-nvidia-gpu-driver-check.sh",
                 True,
             ]
 
