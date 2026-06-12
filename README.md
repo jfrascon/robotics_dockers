@@ -8,7 +8,7 @@ Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-
 
 1. [Installing Docker](#installing-docker)
 2. [Docker and the host filesystem owner matching problem](#docker-and-the-host-filesystem-owner-matching-problem)
-3. [builder — generating ROS 2 Docker images](#builder--generating-ros-2-docker-images)
+3. [builder: generating ROS 2 Docker images](#builder--generating-ros-2-docker-images)
     - [Prerequisites](#prerequisites)
     - [Quick start](#quick-start)
     - [create_docker_files.py reference](#create_docker_filespy-reference)
@@ -16,7 +16,7 @@ Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-
     - [Customizing the output](#customizing-the-output)
     - [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
     - [NVIDIA GPU support](#nvidia-gpu-support)
-    - [rosbuild — colcon build wrapper](#rosbuild--colcon-build-wrapper)
+    - [rosbuild: colcon build wrapper](#rosbuild--colcon-build-wrapper)
     - [Running the container](#running-the-container)
     - [CycloneDDS host tuning](#cyclonedds-host-tuning)
     - [Examples](#examples)
@@ -66,7 +66,7 @@ Then log out and back in, or run `newgrp docker` to apply the change to the curr
 
 ### What is a UID in Linux?
 
-UID stands for *user identifier* — a number assigned by the Linux kernel to each user. It is the actual identity used for access control: file ownership, process permissions, and resource access are all based on UIDs, not on usernames. Usernames are just human-readable labels that tools like `ls` translate from the underlying UID.
+UID stands for *user identifier*, a number assigned by the Linux kernel to each user. It is the actual identity used for access control: file ownership, process permissions, and resource access are all based on UIDs, not on usernames. Usernames are just human-readable labels that tools like `ls` translate from the underlying UID.
 
 ```bash
 id
@@ -77,7 +77,7 @@ UIDs 1–999 are typically reserved for system accounts. On Ubuntu, the first in
 
 ### The problem
 
-Most Docker images only provide the `root` user (UID 0). Running as root inside a container is a security risk — a mistake as root has no safety net. Beyond security, there is a practical issue with bind mounts.
+Most Docker images only provide the `root` user (UID 0). Running as root inside a container is a security risk. A mistake as root has no safety net. Beyond security, there is a practical issue with bind mounts.
 
 When you mount a directory from your host into a container (`-v /host/path:/container/path`), files created inside the container are owned by whatever UID is active in the container. If that UID does not match your UID on the host, you will not be able to edit or delete those files from your host OS without using `sudo`.
 
@@ -93,7 +93,7 @@ See [Running the container](#running-the-container) for how to pass `HOST_UID` a
 
 ---
 
-## builder — generating ROS 2 Docker images
+## builder: generating ROS 2 Docker images
 
 The `builder/` directory contains the tooling to generate a complete Docker build context for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a `docker-compose-dev.yaml`, and all supporting resources.
 
@@ -265,7 +265,7 @@ When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 | Script | Purpose |
 |---|---|
-| <nobr>`98-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`) — in this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host — this is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout — if you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--use-host-nvidia-driver` was used. |
+| <nobr>`98-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`). In this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host. This is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout. If you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--use-host-nvidia-driver` was used. |
 
 #### Using a base image that has its own entrypoint
 
@@ -275,7 +275,7 @@ Instead:
 
 1. Find the relevant script(s) in the base image entrypoint.
 2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**, using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`). `build.py` will copy it into the image automatically.
-3. Run `build.py` as usual — the script will be picked up automatically.
+3. Run `build.py` as usual. The script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:
 
@@ -302,7 +302,7 @@ echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 
 ---
 
-### rosbuild — colcon build wrapper
+### rosbuild: colcon build wrapper
 
 `rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build` with sensible defaults enabled out of the box:
 
@@ -365,11 +365,11 @@ The container starts as root, remaps the internal user to your `HOST_UID`/`HOST_
 
 ROS 2 uses a DDS middleware for node communication. When large messages are exchanged (point clouds, images, sensor data) the default Linux kernel network buffers are too small and CycloneDDS will log errors or silently drop data.
 
-The official tuning guide covers this: [ROS 2 DDS tuning — CycloneDDS](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
+The official tuning guide covers this: [ROS 2 DDS tuning, CycloneDDS section](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
 
 **Why these settings go on the host, not inside the container**
 
-The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux kernel parameters controlled via `sysctl`. A Docker container shares the host kernel — it cannot set `sysctl` values that affect the whole system from inside (and doing so would require `--privileged`, which is a security risk). The host is the right place for kernel-level tuning.
+The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux kernel parameters controlled via `sysctl`. A Docker container shares the host kernel. It cannot set `sysctl` values that affect the whole system from inside (and doing so would require `--privileged`, which is a security risk). The host is the right place for kernel-level tuning.
 
 **Files provided**
 
@@ -398,7 +398,7 @@ sysctl net.ipv4.ipfrag_high_thresh
 
 The settings persist across reboots because `sysctl.d` files are loaded at startup. Without them, CycloneDDS will work for small messages but will fail or lose data when messages exceed the default 208 KiB receive buffer.
 
-> **Note:** If you configure CycloneDDS to use a large receive buffer in its XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have not applied these host settings, the middleware will log an error at startup and fall back to the system default — often causing silent data loss.
+> **Note:** If you configure CycloneDDS to use a large receive buffer in its XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have not applied these host settings, the middleware will log an error at startup and fall back to the system default, often causing silent data loss.
 
 ---
 
@@ -414,7 +414,7 @@ The `builder/examples/` directory contains reference scripts for installing spec
 Running GUI applications inside a Docker container requires giving the container access to the host's display server.
 
 **IMPORTANT: This graphical setup has been tested on X11 and is not currently validated on Wayland hosts.**
-On a Wayland host you may need **XWayland** — the compatibility layer that allows X11 applications to run inside a Wayland session. On Ubuntu it is usually provided by the `xwayland` package and started automatically by most desktop sessions when needed.
+On a Wayland host you may need **XWayland**, the compatibility layer that allows X11 applications to run inside a Wayland session. On Ubuntu it is usually provided by the `xwayland` package and started automatically by most desktop sessions when needed.
 
 The generated `docker-compose-dev.yaml` already mounts `/tmp/.X11-unix` and forwards `DISPLAY`, which covers the X11 transport layer. What remains is telling the X server on the host to allow connections from the container process.
 
@@ -444,7 +444,7 @@ bash scripts/install_docker_gui_support.sh
 
 The script:
 
-1. Installs `/usr/local/bin/set_xauth_cookies.sh`, which generates `${XDG_RUNTIME_DIR}/cookies.xauth` — a file containing the X11 authentication tokens for the current session.
+1. Installs `/usr/local/bin/set_xauth_cookies.sh`, which generates `${XDG_RUNTIME_DIR}/cookies.xauth`, a file containing the X11 authentication tokens for the current session.
 2. Installs and enables a systemd user service (`set-xauth-cookies.service`) that runs the above script automatically every time a graphical session starts, via `graphical-session.target`. This works across all major desktop environments (GNOME, KDE, XFCE, etc.).
 3. Runs the script immediately so GUI support is available without requiring a re-login.
 
