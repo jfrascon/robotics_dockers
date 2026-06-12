@@ -251,58 +251,21 @@ If the file contains only comments or blank lines, the Rust toolchain is
 
 ### Startup scripts (entrypoint.d)
 
-When the container starts, the custom entrypoint runs all scripts found in `/etc/entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are **sourced** (they run in the same process, so variables they export are visible to scripts that run after them — but see the warning below about `gosu`). Scripts with a `.txt` extension are printed to stdout.
+When the container starts, the custom entrypoint runs all scripts found in `/etc/entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are **sourced**. Scripts with a `.txt` extension are printed to stdout.
 
 Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`, where `NN` is **exactly two digits** (e.g. `01`, `50`, `99`). Files that do not match this pattern cause the container to abort at startup.
 
-Two scripts are always included and are mandatory:
+Two scripts are always included:
 
 | Script | Purpose |
 |---|---|
-| `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. |
+| `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. Do not use `99` for your own scripts. |
 
 When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 | Script | Purpose |
 |---|---|
-| <nobr>`98-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`) — in this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host — this is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout — if you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. |
-
-#### Adding your own startup scripts
-
-You can add custom scripts to `.resources/entrypoint.d/` **before** running `build.py`. They will be copied into the image and executed at every container startup.
-
-```bash
-# Example: print a banner at startup
-cat > .resources/entrypoint.d/10-banner.txt <<'EOF'
-Welcome to my ROS 2 development container!
-EOF
-```
-
-**Important — environment variables set in entrypoint.d scripts do not reach the development user.**
-
-The scripts in `entrypoint.d/` run while the container is still `root` (before `99-uid-gid-adapt.sh` remaps the user and calls `exec gosu IMAGE_MAIN_USER`). `gosu` starts the development user's process with a clean environment, so any variable exported in an earlier entrypoint script is lost after `gosu` runs.
-
-For example, this **does not work** as intended:
-
-```bash
-# BAD: this variable is set for root and disappears after gosu
-cat > .resources/entrypoint.d/20-env.sh <<'EOF'
-export MY_VAR=hello
-EOF
-```
-
-To set environment variables that are visible to the development user, use one of these approaches instead:
-
-- **Persistent across all processes (including non-interactive ones):** add an `ENV` instruction to the Dockerfile via `extra.d/apt_packages.sh` is not the right place — you need a custom `Dockerfile` layer. If you are extending the generated image, add `ENV MY_VAR=hello` to your downstream Dockerfile.
-- **For interactive shells:** add `export MY_VAR=hello` to `~/.bashrc.user` of `IMAGE_MAIN_USER` inside the image (via `extra.d/apt_packages.sh` running as root: `echo 'export MY_VAR=hello' >> /home/IMAGE_MAIN_USER/.bashrc.user`).
-
-Use `entrypoint.d/` only for tasks that must run at startup as root before the user session begins — for example: checking hardware presence (like `98-gpu-driver-check.sh`), printing banners, or performing one-time system checks.
-
-Naming rules:
-- Filename must be `NN-name.sh` or `NN-name.txt` with exactly two digits.
-- Do not use `99` (reserved for UID/GID adaptation).
-- If `--use-host-nvidia-driver` was used, do not use `98` either.
-- `.sh` scripts are sourced — they run in the entrypoint process. Keep them fast and side-effect-free (no `exit`, no long-running commands).
+| <nobr>`98-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`) — in this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host — this is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout — if you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--use-host-nvidia-driver` was used. |
 
 #### Using a base image that has its own entrypoint
 
