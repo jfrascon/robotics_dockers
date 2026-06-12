@@ -6,11 +6,8 @@
 # startup to match the host user's UID (HOST_UID) and GID (HOST_UPGID), so that
 # files created inside the container are owned by the same user on the host.
 #
-# Preconditions (validated by entrypoint.sh before this script runs):
-#   - Container must start as root (UID 0)
-#   - HOST_UID and HOST_UPGID must exist, be non-empty integers > 1000
-#
 # Flow:
+#   Validate that the active user is root and that HOST_UID/HOST_UPGID are valid.
 #   Adapt UID of IMAGE_MAIN_USER:
 #     HOST_UID free           -> usermod --uid
 #     HOST_UID taken by other -> error (user must resolve manually)

@@ -20,35 +20,20 @@ _CHECK_SCRIPT="/usr/local/bin/check_entrypoint_d"
 # combination is a misconfiguration and must fail with a clear message.
 # ---------------------------------------------------------------------------
 
-# validate_id_var <var_name> <var_value>
-# Checks that a UID/GID variable is not undefined, not empty, is an integer, and is > 1000.
-validate_id_var() {
-    local name="${1}"
-    local value="${2}"
-
-    if [ -z "${value}" ]; then
-        echo "Error: ${name} is undefined or empty. It must be an integer greater than 1000." >&2
-        exit 1
-    fi
-
-    if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
-        echo "Error: ${name} is not an integer (got: '${value}'). It must be an integer greater than 1000." >&2
-        exit 1
-    fi
-
-    if [ "${value}" -le 1000 ]; then
-        echo "Error: ${name} must be greater than 1000 (got: '${value}')." >&2
-        exit 1
-    fi
-}
-
 if [ "$(id -u)" -ne 0 ]; then
     echo "Error: this image must be started as root. Current UID: $(id -u)." >&2
     exit 1
 fi
 
-validate_id_var "HOST_UID"   "${HOST_UID}"
-validate_id_var "HOST_UPGID" "${HOST_UPGID}"
+if [ -z "${HOST_UID}" ] || ! [[ "${HOST_UID}" =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
+    echo "Error: HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}')." >&2
+    exit 1
+fi
+
+if [ -z "${HOST_UPGID}" ] || ! [[ "${HOST_UPGID}" =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
+    echo "Error: HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}')." >&2
+    exit 1
+fi
 
 # Verify the validation script itself is present and executable before using it.
 if [ ! -f "${_CHECK_SCRIPT}" ]; then

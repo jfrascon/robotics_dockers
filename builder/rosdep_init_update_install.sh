@@ -143,7 +143,7 @@ if [ -n "${pkgs_dir}" ]; then
     # Update cache to ensure the latest package information is available.
     apt-get update
 
-    HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src || \
+    HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -r -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src || \
         handle_error 1 "rosdep install failed"
 fi
 
