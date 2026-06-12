@@ -231,6 +231,7 @@ image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
 [ "${image_main_user_id}" -eq 0 ] && handle_error 1 "IMAGE_MAIN_USER '${IMAGE_MAIN_USER}' has UID 0 (root). A non-root user is required."
 
 image_main_user_home="$(echo "${image_main_user_entry}" | cut -d: -f6)"
+image_main_user_shell="$(echo "${image_main_user_entry}" | cut -d: -f7)"
 image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
 image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
 
@@ -391,8 +392,12 @@ fi
 log info "Setting ownership of home directory '${image_main_user_home}' to '${HOST_UID}:${HOST_UPGID}', skipping mounted paths"
 chown_home_without_crossing_mounts "${image_main_user_home}" "${HOST_UID}:${HOST_UPGID}"
 
-# gosu starts a new session with the new user and group ids.
-exec gosu "${IMAGE_MAIN_USER}" bash -c '
-    [ -s "${HOME}/.bashrc.user" ] && . "${HOME}/.bashrc.user"
-    exec "$@"
-' bash "$@"
+# gosu switches to IMAGE_MAIN_USER. HOME, USER, LOGNAME and SHELL are set explicitly
+# because gosu performs setuid/setgid + exec but does not initialize the user environment.
+# Without them, HOME would remain /root and .bashrc.user would never be sourced.
+exec gosu "${IMAGE_MAIN_USER}" env \
+    HOME="${image_main_user_home}" \
+    USER="${IMAGE_MAIN_USER}" \
+    LOGNAME="${IMAGE_MAIN_USER}" \
+    SHELL="${image_main_user_shell}" \
+    "$@"
