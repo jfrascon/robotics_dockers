@@ -274,7 +274,7 @@ This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), wh
 Instead:
 
 1. Find the relevant script(s) in the base image entrypoint.
-2. Copy or adapt that logic into a new `.sh` file in `.resources/entrypoint.d/` using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`).
+2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**, using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`). `build.py` will copy it into the image automatically.
 3. Run `build.py` as usual — the script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:
