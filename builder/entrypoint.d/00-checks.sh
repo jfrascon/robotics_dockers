@@ -7,7 +7,7 @@
 _entrypoint_d_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 for _f in "${_entrypoint_d_dir}"/*; do
-    [ -e "${_f}" ] || continue
+    [ ! -e "${_f}" ] && continue
     _basename="$(basename "${_f}")"
 
     if [[ ! "${_basename}" =~ ^[0-9]{2}-.+\.(sh|txt)$ ]]; then
