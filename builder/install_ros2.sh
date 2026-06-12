@@ -111,6 +111,9 @@ sanitize() {
     matched_files="$(find /etc/apt/ -type f -name '*.list' \
         -exec grep --files-with-matches --extended-regexp "${ros_deb_pattern}" {} + 2>/dev/null)"
 
+    # Nothing to sanitize, exit early to avoid a spurious empty-string iteration.
+    [ -z "${matched_files}" ] && return 0
+
     while IFS= read -r matched_file; do
         if [ "${matched_file}" = "/etc/apt/sources.list" ]; then
             remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}"

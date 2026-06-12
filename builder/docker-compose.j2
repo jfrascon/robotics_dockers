@@ -70,9 +70,7 @@ services:
     devices:
       # - /dev/ttyACM0:/dev/ttyACM0
       - /dev/bus/usb:/dev/bus/usb
-      {% if not use_host_nvidia_driver %}
       - /dev/dri:/dev/dri
-      {% endif %}
     #device_cgroup_rules:
     #  - "c 13:* rmw" # input
     #  - "c 166:* rmw" # ttyACM
