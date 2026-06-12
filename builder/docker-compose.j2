@@ -132,7 +132,5 @@ services:
     #
     # This is required because modifying /etc/group at runtime (entrypoint) is
     # not enough: processes started by VS Code do not inherit late group changes.
-{% if not use_host_nvidia_driver %}
     group_add:
       - "${RENDER_GID?RENDER_GID must be set. Run: stat -c %g /dev/dri/renderD128}"
-{% endif %}
