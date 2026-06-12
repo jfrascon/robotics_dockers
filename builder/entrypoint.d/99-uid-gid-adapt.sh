@@ -190,78 +190,25 @@ script="${BASH_SOURCE:-${0}}"
 
 log info "Executing script '${script}' with user '${current_user}' (UID '${current_user_id}') and primary group '${current_user_pri_group}' (UPGID '${current_user_pri_group_id}')"
 
-# Possible values of the two variables HOST_UID and HOST_UPGID are:
-# Case |  HOST_UID           |  HOST_UPGID
-# ---------------------------------------
-#  1   | undefined           |  undefined
-#  2   | defined, empty      |  undefined
-#  3   | defined, non-empty  |  undefined
-#  4   | undefined           |  defined, empty
-#  5   | defined, empty      |  defined, empty
-#  6   | defined, non-empty  |  defined, empty
-#  7   | undefined           |  defined, non-empty
-#  8   | defined, empty      |  defined, non-empty
-#  9   | defined, non-empty  |  defined, non-empty
-
-
-# Case is 9 is the one in which UID/GID adaptation is possible: both variables defined and
-# non-empty.
-# However, even if case 9 is satisfied, the non-empty values of both variables must be integers
-# greater than 1000 to be valid IDs and the active user must be root, since only root can change
-# UIDs and GIDs.
-
-# Case 1: HOST_UID and HOST_UPGID are both undefined, the UID/GID adaptation is not possible, so
-# just execute the command as-is, without adaptation, with whichever user is active.
-# The active user is determined in order of priority:
-#  1. --user flag in 'docker run'
-#  2. 'user' field in docker-compose
-#  3. Last USER instruction in the Dockerfile
-if [ -z "${HOST_UID+x}" ] && [ -z "${HOST_UPGID+x}" ]; then
-
-    [ -s "${current_user_home}/.bashrc.user" ] && . "${current_user_home}/.bashrc.user"
-    exec "$@"
-fi
-
-# Case 2-8: HOST_UID and HOST_UPGID are in a state that makes adaptation impossible (one of them is
-# undefined, or one of them is empty, so fail with a clear message.
-
-# If HOST_UID is empty, fail with a clear message.
-if [ -z "${HOST_UID}" ]; then
-    fail_validation "HOST_UID is empty. Either both HOST_UID and HOST_UPGID are undefined, or both must be defined with a non-empty integer value greater than 1000"
-fi
-
-# If HOST_UPGID is empty, fail with a clear message.
-if [ -z "${HOST_UPGID}" ]; then
-    fail_validation "HOST_UPGID is empty. Either both HOST_UID and HOST_UPGID are undefined, or both must be defined with a non-empty integer value greater than 1000"
-fi
-
-# From here on, both variables, HOST_UID and HOST_UPGID, are defined and non-empty, so adaptation is
-# possible in principle, but validation is still needed: both must be integers greater than 1000.
-# Integer values lower than 1000 are reserved for the operating system.
-
-if ! [[ ${HOST_UID} =~ ^-?[0-9]+$ ]]; then
-    fail_validation "HOST_UID must be an integer greater than 1000, given '${HOST_UID}'"
-fi
-
-if ! [[ ${HOST_UPGID} =~ ^-?[0-9]+$ ]]; then
-    fail_validation "HOST_UPGID must be an integer greater than 1000, given '${HOST_UPGID}'"
-fi
-
-if [ "${HOST_UID}" -lt 1000 ] || [ "${HOST_UPGID}" -lt 1000 ]; then
-    fail_validation "HOST_UPGID ('${HOST_UPGID}') and HOST_UID ('${HOST_UID}') must be greater than 1000"
-fi
-
-# If the execution reaches this point, case 9 is satisfied with both variables, HOST_UID and
-# HOST_UPGID, being integer values greater than 1000, so the last check before adaptation is to
-# verify if the current user is root, since only root can change UIDs and GIDs.
-log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"
-
+# ---------------------------------------------------------------------------
+# Redundant precondition checks.
+#
+# entrypoint.sh already validated these before running this script.
+# Repeated here so this script is self-contained and coherent on its own.
+# ---------------------------------------------------------------------------
 if [ "${current_user_id}" -ne 0 ]; then
-    # Since the current user is not root, adaptation is not possible.
-    log info "${REMEMBER_MSG}"
-    [ -s "${current_user_home}/.bashrc.user" ] && . "${current_user_home}/.bashrc.user"
-    exec "$@"
+    fail_validation "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
 fi
+
+if [ -z "${HOST_UID}" ] || ! [[ "${HOST_UID}" =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
+    fail_validation "HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
+fi
+
+if [ -z "${HOST_UPGID}" ] || ! [[ "${HOST_UPGID}" =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
+    fail_validation "HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
+fi
+
+log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"
 
 # If the variable ${IMAGE_MAIN_USER} is undefined or empty, fail with a clear message.
 # This is a very unlikely case since the Dockerfile should ensure that the variable IMAGE_MAIN_USER

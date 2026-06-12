@@ -261,16 +261,17 @@ Two scripts are always included:
 |---|---|
 | `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. Do not use `99` for your own scripts. |
 
-The behaviour of `99-uid-gid-adapt.sh` depends on the user active when the container starts and on whether `HOST_UID`/`HOST_UPGID` exist and have a valid value:
+The behaviour of `99-uid-gid-adapt.sh` requires the following preconditions. If they are not met, the container aborts with a clear error message:
 
-| Active user at startup | `HOST_UID` / `HOST_UPGID` | What happens |
-|---|---|---|
-| Any user | Both do not exist | No UID/GID adaptation. The session starts as the active user with `exec "$@"`. |
-| Any user | If one of them does not exist or is empty | Error. The container aborts with a clear message. |
-| Non-root | Both exist with valid values (integers greater than 1000) | UID/GID adaptation is not possible (only root can change UIDs). The session starts as the active user with `exec "$@"` and a warning is logged. |
-| root | Both exist with valid values (integers greater than 1000) | UID/GID adaptation runs. The user inside the image is remapped to match `HOST_UID`/`HOST_UPGID`, then `exec gosu IMAGE_MAIN_USER` starts the development user session. |
+| Precondition | Requirement |
+|---|---|
+| Active user at startup | Must be `root` (UID 0) |
+| `HOST_UID` | Must exist, be non-empty, and be an integer greater than 1000 |
+| `HOST_UPGID` | Must exist, be non-empty, and be an integer greater than 1000 |
 
-The typical setup (`user: root` in docker-compose with `HOST_UID` and `HOST_UPGID` set) uses the last case.
+When all preconditions are met, `99-uid-gid-adapt.sh` remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start the development user session.
+
+The typical setup is `user: root` in docker-compose with `HOST_UID=$(id -u)` and `HOST_UPGID=$(id -g)` provided via a `.env` file or environment variables.
 
 **How the active user at container startup is determined**
 
