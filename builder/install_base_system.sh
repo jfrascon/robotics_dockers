@@ -317,7 +317,8 @@ done
 
 # Set password for the non-root user.
 # The non-root user can run commands with sudo without a password.
-# Set password equal to username
+# INTENTIONAL: the password is set to the username for convenience in development images.
+# This is acceptable because these images are for local development only and not for production.
 log info "Setting password for user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER}'"
 password="${TARGET_USER}"
 
@@ -409,7 +410,7 @@ sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
 # Cleanup
 #-----------------------------------------------------------------------------------------------------------------------
 log info "Removing installation residues from apt cache"
-apt-get autoclean
-apt-get autoremove --purge -y
-apt-get clean
+apt-get autoclean >/dev/null
+apt-get autoremove --purge -y >/dev/null
+apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* 1>/dev/null 2>&1

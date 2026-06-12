@@ -410,9 +410,11 @@ if __name__ == "__main__":
         print(f"Error: Invalid Docker image name: '{img_id_to_build}'", file=sys.stderr)
         sys.exit(1)
 
-    if not image_main_user or " " in image_main_user:
+    if not re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', image_main_user):
         print(
-            f"Error: Invalid user '{image_main_user}'. No whitespaces allowed",
+            f"Error: Invalid user '{image_main_user}'. "
+            "Must be a valid Unix username: start with a lowercase letter or '_', "
+            "followed by lowercase letters, digits, '-' or '_' (max 32 chars total).",
             file=sys.stderr,
         )
         sys.exit(1)
