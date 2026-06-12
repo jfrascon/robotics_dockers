@@ -176,8 +176,11 @@ install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mo
 log "Installing file '/usr/local/bin/rosbuild'"
 install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild
 
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases.user'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
+# Install .bash_aliases.user if present in context (the user may have removed it between create_docker_files.py and build.py).
+if [ -e /tmp/context/.resources/bash_aliases.user ]; then
+    log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases.user'"
+    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
+fi
 
 log "Removing installation residues from apt cache"
 apt-get autoclean
