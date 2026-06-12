@@ -5,31 +5,34 @@
 # - .txt files are printed to stdout (useful for banners or license notices).
 # /etc/entrypoint.d/ is system-level (not user-specific) so it is accessible regardless
 # of which user the container starts as (typically root for UID/GID adaptation).
-shopt -s nullglob extglob
+
 _ENTRYPOINT_DIR="/etc/entrypoint.d"
+_CHECK_SCRIPT="/usr/local/bin/check_entrypoint_d"
 
-if [ ! -d "${_ENTRYPOINT_DIR}" ]; then
-    echo "Error: ${_ENTRYPOINT_DIR} not found. The image was not built correctly." >&2
+# Verify the validation script itself is present and executable before using it.
+if [ ! -f "${_CHECK_SCRIPT}" ]; then
+    echo "Error: ${_CHECK_SCRIPT} not found. The image was not built correctly." >&2
     exit 1
 fi
 
-if [ ! -f "${_ENTRYPOINT_DIR}/99-uid-gid-adapt.sh" ]; then
-    echo "Error: ${_ENTRYPOINT_DIR}/99-uid-gid-adapt.sh not found. The image was not built correctly." >&2
+if [ ! -x "${_CHECK_SCRIPT}" ]; then
+    echo "Error: ${_CHECK_SCRIPT} is not executable. The image was not built correctly." >&2
     exit 1
 fi
 
-# Validate naming convention for all files in entrypoint.d/.
-# Every file must be NN-name.sh or NN-name.txt (NN = exactly two digits).
-for _f in "${_ENTRYPOINT_DIR}"/*; do
-    [ ! -e "${_f}" ] && continue
-    _basename="$(basename "${_f}")"
-    if [[ ! "${_basename}" =~ ^[0-9]{2}-.+\.(sh|txt)$ ]]; then
-        echo "Error: '${_basename}' in ${_ENTRYPOINT_DIR} does not follow the naming convention NN-name.sh|txt (NN must be exactly two digits, e.g. 01, 50, 99)" >&2
-        exit 1
-    fi
-done
+# Validate the entrypoint.d directory: existence, non-empty, required scripts, naming convention.
+"${_CHECK_SCRIPT}" "${_ENTRYPOINT_DIR}" || exit 1
 
+# nullglob: if a glob pattern matches no files, expand to nothing (empty) instead of
+#           keeping the unexpanded pattern as a literal string in the result.
+# extglob: enables extended glob syntax, needed for *@(.txt|.sh) used to collect scripts.
+shopt -s nullglob extglob
+
+# Collect all .sh and .txt files in alphabetical order.
 declare -a _PARTS=( "${_ENTRYPOINT_DIR}"/*@(.txt|.sh) )
+
+# nullglob and extglob are no longer needed after the glob expansion.
+# Deactivating them avoids unintended side effects in the sourced scripts.
 shopt -u nullglob extglob
 
 for _file in "${_PARTS[@]}"; do

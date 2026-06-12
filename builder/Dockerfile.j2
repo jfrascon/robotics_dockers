@@ -37,6 +37,7 @@ required_context_paths=(
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
     .resources/entrypoint.sh
+    .resources/check_entrypoint_d
     .resources/rosbuild
     .resources/rosdep_init_update_install.sh
     .resources/colcon_mixin_metadata.sh
@@ -45,6 +46,9 @@ required_context_paths=(
 for relative_path in "${required_context_paths[@]}"; do
     if [ ! -f "${context_dir}/${relative_path}" ]; then
         handle_error 1 "File not found: ${context_dir}/${relative_path}"
+    fi
+    if [ ! -x "${context_dir}/${relative_path}" ]; then
+        handle_error 1 "File not executable: ${context_dir}/${relative_path}"
     fi
 done
 EOF
@@ -144,6 +148,12 @@ chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_M
 
 log "Installing file '/usr/local/bin/entrypoint.sh'"
 install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+log "Installing file '/usr/local/bin/check_entrypoint_d'"
+install --owner root --group root --mode 775 /tmp/context/.resources/check_entrypoint_d /usr/local/bin/check_entrypoint_d
+
+log "Validating entrypoint.d context before installing scripts"
+bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
 
 log "Installing entrypoint.d scripts to /etc/entrypoint.d/"
 mkdir --parent /etc/entrypoint.d

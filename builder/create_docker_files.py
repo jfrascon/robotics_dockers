@@ -69,6 +69,7 @@ if __name__ == "__main__":
             ".resources/install_base_system.sh": ["install_base_system.sh", True],
             ".resources/install_extra_pkgs.sh": ["install_extra_pkgs.sh", True],
             ".resources/install_ros.sh": ["install_ros2.sh", True],
+            ".resources/check_entrypoint_d": ["check_entrypoint_d", True],
             ".resources/rosbuild": ["ros2build", True],
             ".resources/rosdep_init_update_install.sh": ["rosdep_init_update_install.sh", True],
             # extra.d/ templates

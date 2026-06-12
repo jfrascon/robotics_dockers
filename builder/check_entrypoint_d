@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# check_entrypoint_d
+#
+# Validates the contents of an entrypoint.d directory.
+# Used both at image build time (Dockerfile) and at container runtime (entrypoint.sh)
+# to catch errors as early as possible.
+#
+# Usage: check_entrypoint_d <directory>
+#
+# Checks:
+#   - Directory exists
+#   - Directory is not empty
+#   - 99-uid-gid-adapt.sh is present (mandatory final script)
+#   - Every file follows the naming convention: NN-name.sh or NN-name.txt
+#     where NN is exactly two digits (00-99)
+
+script="${BASH_SOURCE:-${0}}"
+script_name="$(basename "${script}")"
+
+if [ "${#}" -ne 1 ]; then
+    echo "Usage: ${script_name} <directory>" >&2
+    exit 1
+fi
+
+dir="${1}"
+
+if [ ! -d "${dir}" ]; then
+    echo "Error [${script_name}]: '${dir}' does not exist or is not a directory." >&2
+    exit 1
+fi
+
+# Check the directory is not empty (contains at least one file).
+if [ -z "$(ls -A "${dir}" 2>/dev/null)" ]; then
+    echo "Error [${script_name}]: '${dir}' is empty." >&2
+    exit 1
+fi
+
+# 99-uid-gid-adapt.sh is mandatory — it performs the final exec into the user session.
+if [ ! -f "${dir}/99-uid-gid-adapt.sh" ]; then
+    echo "Error [${script_name}]: '${dir}/99-uid-gid-adapt.sh' not found. This script is required." >&2
+    exit 1
+fi
+
+# Validate naming convention for every file in the directory.
+# Every file must be NN-name.sh or NN-name.txt (NN = exactly two digits).
+for f in "${dir}"/*; do
+    [ ! -e "${f}" ] && continue
+    basename_f="$(basename "${f}")"
+    if [[ ! "${basename_f}" =~ ^[0-9]{2}-.+\.(sh|txt)$ ]]; then
+        echo "Error [${script_name}]: '${basename_f}' in '${dir}' does not follow the naming convention NN-name.sh|txt (NN must be exactly two digits, e.g. 01, 50, 99)." >&2
+        exit 1
+    fi
+done
