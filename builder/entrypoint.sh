@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 
-# Gather and execute parts from ~/.entrypoint.d/ in alphabetical (numeric prefix) order.
+# Gather and execute parts from /etc/entrypoint.d/ in alphabetical (numeric prefix) order.
 # - .sh  files are sourced so they share this process and can set variables used below.
 # - .txt files are printed to stdout (useful for banners or license notices).
-# The folder is searched in $HOME of the active user. Only IMAGE_MAIN_USER will have it
-# (the Dockerfile copies entrypoint.d/ into that user's home during build).
-# For any other user the directory won't exist and we fall through to a plain exec "$@".
+# /etc/entrypoint.d/ is system-level (not user-specific) so it is accessible regardless
+# of which user the container starts as (typically root for UID/GID adaptation).
 shopt -s nullglob extglob
-# Use IMAGE_MAIN_USER_HOME (set as Docker ENV) rather than $HOME so the
-# entrypoint.d/ directory is found even when the process starts as root
-# (where $HOME=/root and the entrypoint.d/ lives under the dev user's home).
-_ENTRYPOINT_DIR="${IMAGE_MAIN_USER_HOME:-${HOME}}/.entrypoint.d"
+_ENTRYPOINT_DIR="/etc/entrypoint.d"
 
 if [ ! -d "${_ENTRYPOINT_DIR}" ]; then
     exec "$@"

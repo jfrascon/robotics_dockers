@@ -251,7 +251,7 @@ If the file contains only comments or blank lines, the Rust toolchain is
 
 ### Startup scripts (entrypoint.d)
 
-When the container starts, the custom entrypoint runs all scripts found in `~/.entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are
+When the container starts, the custom entrypoint runs all scripts found in `/etc/entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are
 **sourced** (they run in the same process and can set environment variables used by later scripts). Scripts with a `.txt` extension are printed to stdout.
 
 Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`, where `NN` is **exactly two digits** (e.g. `01`, `50`, `99`). Files that do not match this pattern cause the container to abort at startup.
