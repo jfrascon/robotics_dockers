@@ -260,7 +260,6 @@ Two scripts are always included and are mandatory:
 
 | Script | Purpose |
 |---|---|
-| `00-checks.sh` | Validates the naming convention of all files in `entrypoint.d/` and checks that `99-uid-gid-adapt.sh` is present. Runs first. |
 | `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. |
 
 When `--use-host-nvidia-driver` is passed, an additional script is included:

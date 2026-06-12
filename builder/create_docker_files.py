@@ -87,10 +87,6 @@ if __name__ == "__main__":
         ]
 
         items_to_install[".resources/entrypoint.sh"] = ["entrypoint.sh", True]
-        items_to_install[".resources/entrypoint.d/00-checks.sh"] = [
-            "entrypoint.d/00-checks.sh",
-            True,
-        ]
         items_to_install[".resources/entrypoint.d/99-uid-gid-adapt.sh"] = [
             "entrypoint.d/99-uid-gid-adapt.sh",
             True,
