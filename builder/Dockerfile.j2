@@ -15,6 +15,7 @@ ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
     IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
     ROS_DISTRO="{{ ros_distro }}" \
     ROS_VERSION="2" \
+    USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}" \
     DEBIAN_FRONTEND="noninteractive"
 
 USER root
@@ -155,7 +156,7 @@ log "Installing file '/usr/local/bin/check_entrypoint_d'"
 install --owner root --group root --mode 775 /tmp/context/.resources/check_entrypoint_d /usr/local/bin/check_entrypoint_d
 
 log "Validating entrypoint.d context before installing scripts"
-USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}" bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
+bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
 
 log "Installing entrypoint.d scripts to /etc/entrypoint.d/"
 mkdir --parent /etc/entrypoint.d
@@ -207,8 +208,7 @@ ENV TZ="Etc/UTC" \
 {% else %}
     ROS_AUTOMATIC_DISCOVERY_RANGE="LOCALHOST" \
 {% endif %}
-    RMW_IMPLEMENTATION="rmw_fastrtps_cpp" \
-    USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}"
+    RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
 
 USER "${IMAGE_MAIN_USER}"
 WORKDIR "${IMAGE_MAIN_USER_HOME}"
