@@ -155,7 +155,7 @@ log "Installing file '/usr/local/bin/check_entrypoint_d'"
 install --owner root --group root --mode 775 /tmp/context/.resources/check_entrypoint_d /usr/local/bin/check_entrypoint_d
 
 log "Validating entrypoint.d context before installing scripts"
-bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
+USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}" bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
 
 log "Installing entrypoint.d scripts to /etc/entrypoint.d/"
 mkdir --parent /etc/entrypoint.d
