@@ -9,7 +9,13 @@ shopt -s nullglob extglob
 _ENTRYPOINT_DIR="/etc/entrypoint.d"
 
 if [ ! -d "${_ENTRYPOINT_DIR}" ]; then
-    exec "$@"
+    echo "Error: ${_ENTRYPOINT_DIR} not found. The image was not built correctly." >&2
+    exit 1
+fi
+
+if [ ! -f "${_ENTRYPOINT_DIR}/00-checks.sh" ] || [ ! -f "${_ENTRYPOINT_DIR}/99-uid-gid-adapt.sh" ]; then
+    echo "Error: ${_ENTRYPOINT_DIR} is missing required scripts (00-checks.sh and/or 99-uid-gid-adapt.sh)." >&2
+    exit 1
 fi
 
 declare -a _PARTS=( "${_ENTRYPOINT_DIR}"/*@(.txt|.sh) )
