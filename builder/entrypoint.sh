@@ -26,7 +26,7 @@ validate_uid_var() {
     local name="${1}"
     local value="${2}"
 
-    if [ -z "${value+x}" ] || [ -z "${value}" ]; then
+    if [ -z "${value}" ]; then
         echo "Error: ${name} is undefined or empty. It must be an integer greater than 1000." >&2
         exit 1
     fi
