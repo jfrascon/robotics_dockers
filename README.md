@@ -328,6 +328,21 @@ You also need to provide the GID of the render device so all processes (includin
 echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 ```
 
+**Warning at startup: `groups: cannot find name for group ID <N>`**
+
+When the container starts you may see a message like `groups: cannot find name for group ID 992`. This is expected and harmless. The GID comes from the host's render device group and does not have a corresponding name in the container's `/etc/group`. The process still belongs to that group and has full access to `/dev/dri/renderD*`. You can verify this inside the container:
+
+```bash
+# The GID appears in the output (as a number, without a name)
+id
+
+# The device is accessible
+ls -la /dev/dri/renderD128
+
+# Direct access test
+test -r /dev/dri/renderD128 && echo "access OK" || echo "no access"
+```
+
 ---
 
 ### rosbuild: colcon build wrapper
@@ -377,7 +392,7 @@ The output directory contains a `docker-compose-dev.yaml`. Copy it next to your 
 HOST_UID=1000          # your UID: id -u
 HOST_UPGID=1000        # your primary GID: id -g
 WORKSPACE=/home/myuser/my_workspace   # path to your workspace on the host
-RENDER_GID=992         # required if --use-host-nvidia-driver was used: stat -c %g /dev/dri/renderD128
+RENDER_GID=992         # GID of the render device group: stat -c %g /dev/dri/renderD128
 ```
 
 Then:
