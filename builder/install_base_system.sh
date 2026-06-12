@@ -350,6 +350,7 @@ echo "${TARGET_USER}:${password}" | chpasswd || \
 
 # Create basic folders for configuration and binaries.
 dirs_to_create=(
+    "${TARGET_USER_HOME}/.cache"
     "${TARGET_USER_HOME}/.config"
     "${TARGET_USER_HOME}/.local/bin"
     "${TARGET_USER_HOME}/.local/lib"
