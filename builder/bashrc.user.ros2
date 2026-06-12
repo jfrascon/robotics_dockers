@@ -84,6 +84,12 @@ fi
 [ -s /usr/share/colcon_cd/function/colcon_cd.sh ] && . /usr/share/colcon_cd/function/colcon_cd.sh
 
 # ---------------------------------------------------------------------------
+# Local aliases (optional, non-fatal).
+# ---------------------------------------------------------------------------
+# shellcheck disable=SC1091
+[ -f "${HOME}/.bash_aliases.user" ] && . "${HOME}/.bash_aliases.user"
+
+# ---------------------------------------------------------------------------
 # Deduplicate PATH variables to avoid unbounded growth on nested/repeated sources.
 # Guarded: deduplicate_path may not be installed in all images.
 # ---------------------------------------------------------------------------
@@ -114,9 +120,3 @@ if command -v deduplicate_path >/dev/null 2>&1; then
 else
   echo "Warning: deduplicate_path not found; skipping environment path deduplication" >&2
 fi
-
-# ---------------------------------------------------------------------------
-# Local aliases (optional, non-fatal).
-# ---------------------------------------------------------------------------
-# shellcheck disable=SC1091
-[ -f "${HOME}/.bash_aliases.user" ] && . "${HOME}/.bash_aliases.user"
