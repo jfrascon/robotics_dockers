@@ -53,6 +53,25 @@ source_base_ros_setup() {
   echo "Warning: no ROS setup loaded (${ros_setup_reason:-no valid setup found}); continuing without ROS environment" >&2
   return 1
 }
+# ---------------------------------------------------------------------------
+# XDG Base Directory specification.
+# These directories are created by the image build process in install_base_system.sh.
+# Values are set unconditionally — this image defines its own layout.
+# XDG_RUNTIME_DIR is not managed by systemd-logind in containers; created here
+# as a per-user directory under /tmp with the required 0700 permissions.
+# ---------------------------------------------------------------------------
+export XDG_CONFIG_HOME="${HOME}/.config"
+export XDG_DATA_HOME="${HOME}/.local/share"
+export XDG_CACHE_HOME="${HOME}/.cache"
+
+if [ -z "${XDG_RUNTIME_DIR}" ]; then
+    export XDG_RUNTIME_DIR="/tmp/runtime-${USER}"
+
+    if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
+        mkdir -p "${XDG_RUNTIME_DIR}"
+        chmod 700 "${XDG_RUNTIME_DIR}"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Ensure ~/.local/bin is in PATH (user-local binaries installed by pip, etc.).
