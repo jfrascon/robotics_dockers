@@ -24,6 +24,7 @@ if __name__ == "__main__":
         img_id_to_build: str,
         use_host_nvidia_driver: bool,
     ) -> dict[str, list[str | dict[str, str] | bool]]:
+        image_main_user_home = f"/home/{image_main_user}"
         # Items to use.
         # Source is relative to base_dir, destination relative to context_path)
         # (src_name, dst_name, is_executable)
@@ -35,7 +36,7 @@ if __name__ == "__main__":
                 {
                     "base_img": base_img,
                     "image_main_user": image_main_user,
-                    "image_main_user_home": f"/home/{image_main_user}",
+                    "image_main_user_home": image_main_user_home,
                     "ros_distro": ros_distro,
                     "use_host_nvidia_driver": use_host_nvidia_driver,
                 },
@@ -56,10 +57,12 @@ if __name__ == "__main__":
                 {
                     "service": f"{img_id_to_build.replace(':', '_').replace('/', '_')}_cont",
                     "img_id": img_id_to_build,
-                    "img_workspace_dir": f"/home/{image_main_user}/workspace",
-                    "img_datasets_dir": f"/home/{image_main_user}/datasets",
-                    "img_ssh_dir": f"/home/{image_main_user}/.ssh",
-                    "img_gitconfig_file": f"/home/{image_main_user}/.gitconfig",
+                    "image_main_user": image_main_user,
+                    "image_main_user_home": image_main_user_home,
+                    "img_workspace_dir": f"{image_main_user_home}/workspace",
+                    "img_datasets_dir": f"{image_main_user_home}/datasets",
+                    "img_ssh_dir": f"{image_main_user_home}/.ssh",
+                    "img_gitconfig_file": f"{image_main_user_home}/.gitconfig",
                     "use_host_nvidia_driver": use_host_nvidia_driver,
                 },
                 False,
