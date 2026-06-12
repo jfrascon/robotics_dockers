@@ -261,14 +261,14 @@ Two scripts are always included:
 |---|---|
 | `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. Do not use `99` for your own scripts. |
 
-The behaviour of `99-uid-gid-adapt.sh` depends on the user active when the container starts and on whether `HOST_UID`/`HOST_UPGID` are defined:
+The behaviour of `99-uid-gid-adapt.sh` depends on the user active when the container starts and on whether `HOST_UID`/`HOST_UPGID` are set:
 
 | Active user at startup | `HOST_UID` / `HOST_UPGID` | What happens |
 |---|---|---|
-| Any user | Both undefined | No UID/GID adaptation. The session starts as the active user with `exec "$@"`. |
-| Any user | If one of them is undefined or empty | Error. The container aborts with a clear message. |
-| Non-root | Both defined with valid values | UID/GID adaptation is not possible (only root can change UIDs). The session starts as the active user with `exec "$@"` and a warning is logged. |
-| root | Both defined with valid integers > 1000 | UID/GID adaptation runs. The user inside the image is remapped to match `HOST_UID`/`HOST_UPGID`, then `exec gosu IMAGE_MAIN_USER` starts the development user session. |
+| Any user | Both not set | No UID/GID adaptation. The session starts as the active user with `exec "$@"`. |
+| Any user | If one of them is not set or empty | Error. The container aborts with a clear message. |
+| Non-root | Both set with valid values | UID/GID adaptation is not possible (only root can change UIDs). The session starts as the active user with `exec "$@"` and a warning is logged. |
+| root | Both set with valid integers > 1000 | UID/GID adaptation runs. The user inside the image is remapped to match `HOST_UID`/`HOST_UPGID`, then `exec gosu IMAGE_MAIN_USER` starts the development user session. |
 
 The typical setup (`user: root` in docker-compose with `HOST_UID` and `HOST_UPGID` set) uses the last case.
 
