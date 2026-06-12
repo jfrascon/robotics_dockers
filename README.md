@@ -272,6 +272,21 @@ The behaviour of `99-uid-gid-adapt.sh` depends on the user active when the conta
 
 The typical setup (`user: root` in docker-compose with `HOST_UID` and `HOST_UPGID` set) uses the last case.
 
+**How the active user at container startup is determined**
+
+With `docker run`:
+1. `--user <user>` passed in the CLI: the specified user is active, overriding any `USER` instruction in the Dockerfile.
+2. No `--user` in the CLI: the user specified by the `USER` instruction in the Dockerfile is active.
+
+With `docker compose up`:
+1. `--user <user>` passed in the CLI: the specified user is active, overriding both any `user:` field in the compose file and any `USER` instruction in the Dockerfile.
+2. No `--user` in the CLI and `user:` present in the compose file: the value of `user:` is active, overriding the Dockerfile `USER`.
+3. No `--user` in the CLI and no `user:` in the compose file: the user specified by the `USER` instruction in the Dockerfile is active.
+
+With VS Code Dev Containers:
+- The container starts according to the `docker-compose.yaml` (or the Dockerfile `USER`), same rules as `docker compose up` above.
+- `remoteUser` in `devcontainer.json` does **not** change the startup user of the container. VS Code connects as `remoteUser` after the container is already running, meaning the entrypoint (including `99-uid-gid-adapt.sh`) has already completed with the startup user before VS Code makes its connection.
+
 When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 | Script | Purpose |
