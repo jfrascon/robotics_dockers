@@ -37,6 +37,7 @@ if __name__ == "__main__":
                     "image_main_user": image_main_user,
                     "image_main_user_home": f"/home/{image_main_user}",
                     "ros_distro": ros_distro,
+                    "use_host_nvidia_driver": use_host_nvidia_driver,
                 },
                 False,
             ],
@@ -221,11 +222,13 @@ if __name__ == "__main__":
                     print(
                         f"Context for Jinja2 rendering can't be None for element '{str(dst_path)}'."
                     )
+                    sys.exit(1)
 
                 if not isinstance(context, dict):
                     print(
                         f"Context for Jinja2 rendering must be a dictionary for element '{str(dst_path)}'."
                     )
+                    sys.exit(1)
 
                 if not dst_path.parent.exists():
                     dst_path.parent.mkdir(parents=True)

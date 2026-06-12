@@ -38,9 +38,11 @@ required_context_paths=(
     .resources/deduplicate_path
     .resources/entrypoint.sh
     .resources/check_entrypoint_d
+    .resources/skip_rosdep_keys
     .resources/rosbuild
     .resources/rosdep_init_update_install.sh
     .resources/colcon_mixin_metadata.sh
+    .resources/entrypoint.d/99-uid-gid-adapt.sh
 )
 
 for relative_path in "${required_context_paths[@]}"; do

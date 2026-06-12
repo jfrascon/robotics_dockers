@@ -27,8 +27,8 @@
 # Render device access (/dev/dri/renderD*) is NOT handled here. It must be
 # configured via 'group_add' in docker-compose, passing the host GID of the
 # render device so all container processes inherit it from the start.
-# Exit immediately if a command exits with a non-zero status.
-# set -e
+
+# set -e is intentionally not used in this script.
 
 # Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
 
@@ -146,7 +146,6 @@ handle_error() {
 
 fail_validation() {
     log error "${1}"
-    [ "$(id --user)" -ne 0 ] && log info "${REMEMBER_MSG}"
     exit 1
 }
 

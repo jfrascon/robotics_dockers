@@ -88,7 +88,7 @@ HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon metadata update default
     exit 0
 }
 
-# Move the rosdep databases to the user home directory, if the TARGET_USER is non root.
+# Move the colcon home directory to the user home directory, if the TARGET_USER is non root.
 target_user_id="$(echo "${target_user_entry}" | cut -d: -f3)"
 target_user_pri_group_id="$(echo "${target_user_entry}" | cut -d: -f4)"
 target_user_home="$(echo "${target_user_entry}" | cut -d: -f6)"
