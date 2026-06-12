@@ -241,7 +241,7 @@ if [ -n "${ros_list_file}" ]; then
 fi
 
 log info "Removing installation residues from apt cache"
-apt-get autoclean  || handle_error 1 "Autoclean failed"
-apt-get autoremove --purge -y || handle_error 1 "Autoremove failed"
-apt-get clean      || handle_error 1 "Clean failed"
+apt-get autoclean >/dev/null
+apt-get autoremove --purge -y >/dev/null
+apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/*
