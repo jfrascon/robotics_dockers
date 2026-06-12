@@ -266,7 +266,7 @@ When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 | Script | Purpose |
 |---|---|
-| <nobr>`98-gpu-driver-check.sh`</nobr> | Warns at startup if the NVIDIA driver is not visible in the container (e.g. `--gpus all` was omitted or the NVIDIA Container Toolkit is not installed). Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). |
+| <nobr>`98-gpu-driver-check.sh`</nobr> | Warns at startup if the NVIDIA driver is not visible in the container (e.g. `--gpus all` was omitted or the NVIDIA Container Toolkit is not installed). Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout — if you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. |
 
 #### Adding your own startup scripts
 
