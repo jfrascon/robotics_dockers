@@ -205,7 +205,8 @@ ENV TZ="Etc/UTC" \
 {% else %}
     ROS_AUTOMATIC_DISCOVERY_RANGE="LOCALHOST" \
 {% endif %}
-    RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
+    RMW_IMPLEMENTATION="rmw_fastrtps_cpp" \
+    USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}"
 
 USER "${IMAGE_MAIN_USER}"
 WORKDIR "${IMAGE_MAIN_USER_HOME}"

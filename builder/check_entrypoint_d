@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # check_entrypoint_d
 #
-# Validates the contents of an entrypoint.d directory.
-# Used both at image build time (Dockerfile) and at container runtime (entrypoint.sh)
-# to catch errors as early as possible.
+# Validates the contents of an entrypoint.d directory to catch errors as early as possible.
 #
 # Usage: check_entrypoint_d <directory>
 #
@@ -39,6 +37,14 @@ fi
 if [ ! -f "${dir}/99-uid-gid-adapt.sh" ]; then
     echo "Error [${script_name}]: '${dir}/99-uid-gid-adapt.sh' not found. This script is required." >&2
     exit 1
+fi
+
+# If the image was built with NVIDIA driver support, 98-nvidia-gpu-driver-check.sh is also required.
+if [ "${USE_HOST_NVIDIA_DRIVER}" = "true" ]; then
+    if [ ! -f "${dir}/98-nvidia-gpu-driver-check.sh" ]; then
+        echo "Error [${script_name}]: '${dir}/98-nvidia-gpu-driver-check.sh' not found. This script is required when USE_HOST_NVIDIA_DRIVER=true." >&2
+        exit 1
+    fi
 fi
 
 # Validate naming convention for every file in the directory.
