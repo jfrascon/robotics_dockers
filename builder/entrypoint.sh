@@ -20,9 +20,9 @@ _CHECK_SCRIPT="/usr/local/bin/check_entrypoint_d"
 # combination is a misconfiguration and must fail with a clear message.
 # ---------------------------------------------------------------------------
 
-# validate_uid_var <var_name> <var_value>
+# validate_id_var <var_name> <var_value>
 # Checks that a UID/GID variable is not undefined, not empty, is an integer, and is > 1000.
-validate_uid_var() {
+validate_id_var() {
     local name="${1}"
     local value="${2}"
 
@@ -47,8 +47,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-validate_uid_var "HOST_UID"   "${HOST_UID-}"
-validate_uid_var "HOST_UPGID" "${HOST_UPGID-}"
+validate_id_var "HOST_UID"   "${HOST_UID-}"
+validate_id_var "HOST_UPGID" "${HOST_UPGID-}"
 
 # Verify the validation script itself is present and executable before using it.
 if [ ! -f "${_CHECK_SCRIPT}" ]; then
