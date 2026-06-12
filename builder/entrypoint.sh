@@ -47,8 +47,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-validate_id_var "HOST_UID"   "${HOST_UID-}"
-validate_id_var "HOST_UPGID" "${HOST_UPGID-}"
+validate_id_var "HOST_UID"   "${HOST_UID}"
+validate_id_var "HOST_UPGID" "${HOST_UPGID}"
 
 # Verify the validation script itself is present and executable before using it.
 if [ ! -f "${_CHECK_SCRIPT}" ]; then
