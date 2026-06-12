@@ -277,16 +277,31 @@ You can add custom scripts to `.resources/entrypoint.d/` **before** running `bui
 cat > .resources/entrypoint.d/10-banner.txt <<'EOF'
 Welcome to my ROS 2 development container!
 EOF
+```
 
-# Example: set custom environment variables at startup
+**Important — environment variables set in entrypoint.d scripts do not reach the development user.**
+
+The scripts in `entrypoint.d/` run while the container is still `root` (before `99-uid-gid-adapt.sh` remaps the user and calls `exec gosu IMAGE_MAIN_USER`). `gosu` starts the development user's process with a clean environment, so any variable exported in an earlier entrypoint script is lost after `gosu` runs.
+
+For example, this **does not work** as intended:
+
+```bash
+# BAD: this variable is set for root and disappears after gosu
 cat > .resources/entrypoint.d/20-env.sh <<'EOF'
 export MY_VAR=hello
 EOF
 ```
 
-Rules to follow:
+To set environment variables that are visible to the development user, use one of these approaches instead:
+
+- **Persistent across all processes (including non-interactive ones):** add an `ENV` instruction to the Dockerfile via `extra.d/apt_packages.sh` is not the right place — you need a custom `Dockerfile` layer. If you are extending the generated image, add `ENV MY_VAR=hello` to your downstream Dockerfile.
+- **For interactive shells:** add `export MY_VAR=hello` to `~/.bashrc.user` of `IMAGE_MAIN_USER` inside the image (via `extra.d/apt_packages.sh` running as root: `echo 'export MY_VAR=hello' >> /home/IMAGE_MAIN_USER/.bashrc.user`).
+
+Use `entrypoint.d/` only for tasks that must run at startup as root before the user session begins — for example: checking hardware presence (like `98-gpu-driver-check.sh`), printing banners, or performing one-time system checks.
+
+Naming rules:
 - Filename must be `NN-name.sh` or `NN-name.txt` with exactly two digits.
-- Do not use `00` (reserved for checks) or `99` (reserved for UID/GID adaptation).
+- Do not use `99` (reserved for UID/GID adaptation).
 - If `--use-host-nvidia-driver` was used, do not use `98` either.
 - `.sh` scripts are sourced — they run in the entrypoint process. Keep them fast and side-effect-free (no `exit`, no long-running commands).
 
