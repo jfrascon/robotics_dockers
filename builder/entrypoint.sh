@@ -19,30 +19,36 @@ _CHECK_SCRIPT="/usr/local/bin/check_entrypoint_d"
 # These are the contract this image imposes on the caller. Any other
 # combination is a misconfiguration and must fail with a clear message.
 # ---------------------------------------------------------------------------
+
+# validate_uid_var <var_name> <var_value>
+# Checks that a UID/GID variable is not undefined, not empty, is an integer, and is > 1000.
+validate_uid_var() {
+    local name="${1}"
+    local value="${2}"
+
+    if [ -z "${value+x}" ] || [ -z "${value}" ]; then
+        echo "Error: ${name} is undefined or empty. It must be an integer greater than 1000." >&2
+        exit 1
+    fi
+
+    if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+        echo "Error: ${name} is not an integer (got: '${value}'). It must be an integer greater than 1000." >&2
+        exit 1
+    fi
+
+    if [ "${value}" -le 1000 ]; then
+        echo "Error: ${name} must be greater than 1000 (got: '${value}')." >&2
+        exit 1
+    fi
+}
+
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Error: this image must be started as root (user: root in docker-compose or --user root in docker run). Current UID: $(id -u)." >&2
+    echo "Error: this image must be started as root. Current UID: $(id -u)." >&2
     exit 1
 fi
 
-if [ -z "${HOST_UID+x}" ] || [ -z "${HOST_UID}" ]; then
-    echo "Error: HOST_UID must be set to a non-empty integer greater than 1000." >&2
-    exit 1
-fi
-
-if [ -z "${HOST_UPGID+x}" ] || [ -z "${HOST_UPGID}" ]; then
-    echo "Error: HOST_UPGID must be set to a non-empty integer greater than 1000." >&2
-    exit 1
-fi
-
-if ! [[ "${HOST_UID}" =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
-    echo "Error: HOST_UID must be an integer greater than 1000 (got: '${HOST_UID}')." >&2
-    exit 1
-fi
-
-if ! [[ "${HOST_UPGID}" =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
-    echo "Error: HOST_UPGID must be an integer greater than 1000 (got: '${HOST_UPGID}')." >&2
-    exit 1
-fi
+validate_uid_var "HOST_UID"   "${HOST_UID-}"
+validate_uid_var "HOST_UPGID" "${HOST_UPGID-}"
 
 # Verify the validation script itself is present and executable before using it.
 if [ ! -f "${_CHECK_SCRIPT}" ]; then
