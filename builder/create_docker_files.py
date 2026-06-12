@@ -356,7 +356,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--meta-title",
         type=str,
-        default=None,
+        default="Docker image with ROS2",
         help='Title to include in the image\'s metadata (e.g "App")',
     )
 
