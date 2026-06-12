@@ -134,7 +134,7 @@ root_ros_home="${root_home}/.ros"
 # Make sure the ROS home directory exists.
 mkdir --parent --verbose "${root_ros_home}"
 
-HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep update --rosdistro "${ROS_DISTRO}"
+HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep update --rosdistro "${ROS_DISTRO}" || handle_error 1 "rosdep update failed"
 
 # At this point if pkg_dir is set, it is a valid directory.
 if [ -n "${pkgs_dir}" ]; then

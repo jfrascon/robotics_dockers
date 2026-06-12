@@ -6,14 +6,11 @@
 # startup to match the host user's UID (HOST_UID) and GID (HOST_UPGID), so that
 # files created inside the container are owned by the same user on the host.
 #
+# Preconditions (validated by entrypoint.sh before this script runs):
+#   - Container must start as root (UID 0)
+#   - HOST_UID and HOST_UPGID must exist, be non-empty integers > 1000
+#
 # Flow:
-#   HOST_UID/HOST_UPGID not set
-#     -> start directly without adaptation
-#   HOST_UID/HOST_UPGID set but invalid (empty, non-integer, < 1000)
-#     -> fail_validation
-#   Current user is not root
-#     -> adaptation impossible, start as-is
-#   [Only reaches here if: current user is root + HOST_UID/UPGID valid]
 #   Adapt UID of IMAGE_MAIN_USER:
 #     HOST_UID free           -> usermod --uid
 #     HOST_UID taken by other -> error (user must resolve manually)
@@ -23,7 +20,7 @@
 #     HOST_UPGID taken by other -> rename dance (assign new name to conflicting
 #                                  group, then give our group name its GID)
 #     HOST_UPGID already set    -> no-op
-#   chown home (skipping bind mounts) -> gosu -> exec#
+#   chown home (skipping bind mounts) -> gosu -> exec
 # Render device access (/dev/dri/renderD*) is NOT handled here. It must be
 # configured via 'group_add' in docker-compose, passing the host GID of the
 # render device so all container processes inherit it from the start.
@@ -152,7 +149,7 @@ fail_validation() {
 print_banner() {
     local message="${1}"
     local fd="${2:-1}"          # default to 1 (stdout) if not provided
-    local border_char="${3:--}" # default to '=' if not provided
+    local border_char="${3:--}" # default to '-' if not provided
 
     # Validate that fd is either 1 (stdout) or 2 (stderr)
     if [[ ${fd} != "1" && ${fd} != "2" ]]; then

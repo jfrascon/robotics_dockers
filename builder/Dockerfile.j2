@@ -46,6 +46,9 @@ required_context_paths=(
     .resources/rosdep_init_update_install.sh
     .resources/colcon_mixin_metadata.sh
     .resources/entrypoint.d/99-uid-gid-adapt.sh
+{% if use_host_nvidia_driver %}
+    .resources/entrypoint.d/98-nvidia-gpu-driver-check.sh
+{% endif %}
 )
 
 for relative_path in "${required_context_paths[@]}"; do
@@ -173,10 +176,8 @@ install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mo
 log "Installing file '/usr/local/bin/rosbuild'"
 install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild
 
-# Install .bash_aliases.user if present in context.
-if [ -e /tmp/context/.resources/bash_aliases.user ]; then
-    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
-fi
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases.user'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
 
 log "Removing installation residues from apt cache"
 apt-get autoclean

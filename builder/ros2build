@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# ros2build.sh - Wrapper for colcon build with inverted defaults.
+# ros2build - Wrapper for colcon build with inverted defaults.
 # - Enables --merge-install and --symlink-install by default.
 # - Allows disabling them with --no-merge-install and --no-symlink-install.
 # - Sets --parallel-workers to half of the available CPU cores (rounded up) if not provided.

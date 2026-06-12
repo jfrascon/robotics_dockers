@@ -3,7 +3,7 @@
 
 # Check if libcuda.so.1 -- the CUDA driver -- is present in the ld.so cache or in LD_LIBRARY_PATH
 _LIBCUDA_FROM_LD_CACHE=$(ldconfig -p | grep libcuda.so.1)
-_LIBCUDA_FROM_LD_LIBRARY_PATH=$( ( IFS=: ; for i in ${LD_LIBRARY_PATH}; do ls $i/libcuda.so.1 2>/dev/null | grep -v compat; done) )
+_LIBCUDA_FROM_LD_LIBRARY_PATH=$( ( IFS=: ; for i in ${LD_LIBRARY_PATH}; do ls "$i"/libcuda.so.1 2>/dev/null | grep -v compat; done) )
 _LIBCUDA_FOUND="${_LIBCUDA_FROM_LD_CACHE}${_LIBCUDA_FROM_LD_LIBRARY_PATH}"
 
 # Check if /dev/nvidiactl (like on Linux) or /dev/dxg (like on WSL2) or /dev/nvgpu (like on Tegra) is present
