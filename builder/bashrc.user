@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# This file is sourced by the container user's .bashrc to set up the ROS1 environment.
+# This file is sourced by the container user's .bashrc to set up the ROS2 environment.
 
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # source_base_ros_setup
 #
-# Sources the base ROS1 setup with the following priority:
+# Sources the base ROS2 setup with the following priority:
 #   1) ${ROS_DISTRO}/setup.bash if ROS_DISTRO is explicitly set
 #   2) Auto-detect when exactly one distro is found in /opt/ros (sets ROS_DISTRO)
 #
 # Returns 0 on success, 1 when no valid ROS setup could be sourced.
 # Emits a warning instead of exiting so the shell remains usable.
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 source_base_ros_setup() {
     local ros_setup_path=""
     local ros_setup_reason=""
@@ -54,70 +54,68 @@ source_base_ros_setup() {
     return 1
 }
 
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # XDG Base Directory specification.
 # These directories are created by the image build process in install_base_system.sh.
 # Values are set unconditionally — this image defines its own layout.
 # XDG_RUNTIME_DIR is set by the entrypoint to /run/user/<uid> (created as root
-# with the correct ownership and 0700 permissions). The fallback to
-# /tmp/runtime-<user> applies when the shell is started outside the entrypoint
-# (e.g. docker exec without gosu). The mkdir/chmod run unconditionally to
-# ensure the directory always exists and has the correct permissions.
-# ---------------------------------------------------------------------------------------------------
+# with the correct ownership and 0700 permissions). If not set (e.g. docker exec
+# into a container without this project's entrypoint), fall back to
+# /run/user/<uid> if it exists, otherwise create /tmp/runtime-<uid>.
+# --------------------------------------------------------------------------------------------------
 export XDG_CONFIG_HOME="${HOME}/.config"
 export XDG_DATA_HOME="${HOME}/.local/share"
 export XDG_CACHE_HOME="${HOME}/.cache"
 
 if [ -z "${XDG_RUNTIME_DIR}" ]; then
-    export XDG_RUNTIME_DIR="/tmp/runtime-${USER}"
+    if [ -d "/run/user/$(id -u)" ]; then
+        export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    else
+        export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+        mkdir -p "${XDG_RUNTIME_DIR}"
+        chmod 700 "${XDG_RUNTIME_DIR}"
+    fi
 fi
 
-if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
-    mkdir -p "${XDG_RUNTIME_DIR}"
-    chmod 700 "${XDG_RUNTIME_DIR}"
-fi
-
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Ensure ~/.local/bin is in PATH (user-local binaries installed by pip, etc.).
 # The check avoids duplicating it if already present.
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]] && export PATH="${HOME}/.local/bin:${PATH}"
 
-# ---------------------------------------------------------------------------------------------------
-# ROS bootstrap: prefer workspace overlay (catkin devel or install), fall back to base ROS setup.
-# ---------------------------------------------------------------------------------------------------
-if [ -s "${HOME}/workspace/devel/setup.bash" ]; then
-    # shellcheck disable=SC1091
-    if ! . "${HOME}/workspace/devel/setup.bash"; then
-        echo "Warning: failed to source catkin devel overlay; falling back to base ROS setup" >&2
-        source_base_ros_setup
-    fi
-elif [ -s "${HOME}/workspace/install/setup.bash" ]; then
+# --------------------------------------------------------------------------------------------------
+# ROS bootstrap: prefer workspace overlay, fall back to base ROS setup.
+# --------------------------------------------------------------------------------------------------
+if [ -s "${HOME}/workspace/install/setup.bash" ]; then
     # shellcheck disable=SC1091
     if ! . "${HOME}/workspace/install/setup.bash"; then
-        echo "Warning: failed to source workspace install overlay; falling back to base ROS setup" >&2
+        echo "Warning: failed to source workspace overlay; falling back to base ROS setup" >&2
         source_base_ros_setup
     fi
 else
     source_base_ros_setup
 fi
 
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Optional ROS tooling hooks.
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # shellcheck disable=SC1091
 [ -s /usr/share/gazebo/setup.sh ] && . /usr/share/gazebo/setup.sh
+# shellcheck disable=SC1091
+[ -s /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ] && . /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash
+# shellcheck disable=SC1091
+[ -s /usr/share/colcon_cd/function/colcon_cd.sh ] && . /usr/share/colcon_cd/function/colcon_cd.sh
 
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Local aliases (optional, non-fatal).
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # shellcheck disable=SC1091
 [ -f "${HOME}/.bash_aliases.user" ] && . "${HOME}/.bash_aliases.user"
 
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Deduplicate PATH variables to avoid unbounded growth on nested/repeated sources.
 # Guarded: deduplicate_path may not be installed in all images.
-# ---------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 if command -v deduplicate_path >/dev/null 2>&1; then
     PATH="$(deduplicate_path "${PATH}")"
     export PATH
@@ -134,8 +132,14 @@ if command -v deduplicate_path >/dev/null 2>&1; then
     PYTHONPATH="$(deduplicate_path "${PYTHONPATH}")"
     export PYTHONPATH
 
-    ROS_PACKAGE_PATH="$(deduplicate_path "${ROS_PACKAGE_PATH}")"
-    export ROS_PACKAGE_PATH
+    AMENT_PREFIX_PATH="$(deduplicate_path "${AMENT_PREFIX_PATH}")"
+    export AMENT_PREFIX_PATH
+
+    AMENT_CURRENT_PREFIX="$(deduplicate_path "${AMENT_CURRENT_PREFIX}")"
+    export AMENT_CURRENT_PREFIX
+
+    COLCON_PREFIX_PATH="$(deduplicate_path "${COLCON_PREFIX_PATH}")"
+    export COLCON_PREFIX_PATH
 else
     echo "Warning: deduplicate_path not found; skipping environment path deduplication" >&2
 fi
