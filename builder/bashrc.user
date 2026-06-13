@@ -59,22 +59,22 @@ source_base_ros_setup() {
 # These directories are created by the image build process in install_base_system.sh.
 # Values are set unconditionally — this image defines its own layout.
 # XDG_RUNTIME_DIR is set by the entrypoint to /run/user/<uid> (created as root
-# with the correct ownership and 0700 permissions). The fallback to
-# /tmp/runtime-<user> applies when the shell is started outside the entrypoint
-# (e.g. docker exec without gosu). The mkdir/chmod run unconditionally to
-# ensure the directory always exists and has the correct permissions.
+# with the correct ownership and 0700 permissions). If not set (e.g. docker exec
+# into a container without this project's entrypoint), fall back to
+# /run/user/<uid> if it exists, otherwise create /tmp/runtime-<uid>.
 # --------------------------------------------------------------------------------------------------
 export XDG_CONFIG_HOME="${HOME}/.config"
 export XDG_DATA_HOME="${HOME}/.local/share"
 export XDG_CACHE_HOME="${HOME}/.cache"
 
 if [ -z "${XDG_RUNTIME_DIR}" ]; then
-    export XDG_RUNTIME_DIR="/tmp/runtime-${USER}"
-fi
-
-if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
-    mkdir -p "${XDG_RUNTIME_DIR}"
-    chmod 700 "${XDG_RUNTIME_DIR}"
+    if [ -d "/run/user/$(id -u)" ]; then
+        export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    else
+        export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+        mkdir -p "${XDG_RUNTIME_DIR}"
+        chmod 700 "${XDG_RUNTIME_DIR}"
+    fi
 fi
 
 # --------------------------------------------------------------------------------------------------
