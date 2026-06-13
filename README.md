@@ -1,6 +1,6 @@
 # robotics_dockers
 
-Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-use ROS 2 development images.
+Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-use ROS 1 development images.
 
 ---
 
@@ -8,7 +8,7 @@ Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-
 
 1. [Installing Docker](#installing-docker)
 2. [Docker and the host filesystem owner matching problem](#docker-and-the-host-filesystem-owner-matching-problem)
-3. [builder — generating ROS 2 Docker images](#builder--generating-ros-2-docker-images)
+3. [builder: generating ROS 1 Docker images](#builder--generating-ros-1-docker-images)
     - [Prerequisites](#prerequisites)
     - [Quick start](#quick-start)
     - [create_docker_files.py reference](#create_docker_filespy-reference)
@@ -16,7 +16,9 @@ Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-
     - [Customizing the output](#customizing-the-output)
     - [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
     - [NVIDIA GPU support](#nvidia-gpu-support)
+    - [rosbuild: catkin build wrapper](#rosbuild--catkin-build-wrapper)
     - [Running the container](#running-the-container)
+    - [CycloneDDS host tuning](#cyclonedds-host-tuning)
     - [Examples](#examples)
 4. [Launching graphical user interfaces (GUIs) in Docker containers](#launching-graphical-user-interfaces-guis-in-docker-containers)
 
@@ -64,7 +66,7 @@ Then log out and back in, or run `newgrp docker` to apply the change to the curr
 
 ### What is a UID in Linux?
 
-UID stands for *user identifier* — a number assigned by the Linux kernel to each user. It is the actual identity used for access control: file ownership, process permissions, and resource access are all based on UIDs, not on usernames. Usernames are just human-readable labels that tools like `ls` translate from the underlying UID.
+UID stands for *user identifier*, a number assigned by the Linux kernel to each user. It is the actual identity used for access control: file ownership, process permissions, and resource access are all based on UIDs, not on usernames. Usernames are just human-readable labels that tools like `ls` translate from the underlying UID.
 
 ```bash
 id
@@ -75,7 +77,7 @@ UIDs 1–999 are typically reserved for system accounts. On Ubuntu, the first in
 
 ### The problem
 
-Most Docker images only provide the `root` user (UID 0). Running as root inside a container is a security risk — a mistake as root has no safety net. Beyond security, there is a practical issue with bind mounts.
+Most Docker images only provide the `root` user (UID 0). Running as root inside a container is a security risk. A mistake as root has no safety net. Beyond security, there is a practical issue with bind mounts.
 
 When you mount a directory from your host into a container (`-v /host/path:/container/path`), files created inside the container are owned by whatever UID is active in the container. If that UID does not match your UID on the host, you will not be able to edit or delete those files from your host OS without using `sudo`.
 
@@ -91,9 +93,9 @@ See [Running the container](#running-the-container) for how to pass `HOST_UID` a
 
 ---
 
-## builder — generating ROS 2 Docker images
+## builder: generating ROS 1 Docker images
 
-The `builder/` directory contains the tooling to generate a complete Docker build context for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a `docker-compose-dev.yaml`, and all supporting resources.
+The `builder/` directory contains the tooling to generate a complete Docker build context for a ROS 1 development image: a `Dockerfile`, a `build.py` script, a `docker-compose-dev.yaml`, and all supporting resources.
 
 ---
 
@@ -116,7 +118,7 @@ If you intend to use an NVIDIA GPU:
 python3 builder/create_docker_files.py -h
 
 # Generate the build context:
-python3 builder/create_docker_files.py myuser jazzy myorg/ros2-jazzy:latest --output ~/my_docker
+python3 builder/create_docker_files.py myuser noetic myorg/ros1-noetic:latest --output ~/my_docker
 
 # Optionally edit extra packages before building:
 echo 'apt-get install -y --no-install-recommends ffmpeg' >> ~/my_docker/.resources/extra.d/apt_packages.sh
@@ -147,21 +149,20 @@ usage: create_docker_files.py [-h] [-b BASE_IMG]
 | Argument | Description |
 |---|---|
 | `image_main_user` | Username for the development user inside the container |
-| `ros_distro` | ROS distro: `humble`, `jazzy` |
-| `img_id` | Docker image name and tag, e.g. `myorg/ros2-jazzy:latest` |
+| `ros_distro` | ROS distro: `noetic` |
+| `img_id` | Docker image name and tag, e.g. `myorg/ros1-noetic:latest` |
 | `-b BASE_IMG` | Base Docker image. Default: `ubuntu:X.Y` matched to the ROS distro |
 | `--use-host-nvidia-driver` | Enable NVIDIA GPU access via the host driver |
 | `--output DIR` | Directory where the output is written. Default: a temporary directory under `/tmp` |
 
 **Available ROS distros:**
-- `humble` - ROS 2, Ubuntu 22.04
-- `jazzy` - ROS 2, Ubuntu 24.04
+- `noetic` - ROS 1, Ubuntu 20.04
 
 **Custom base image:**
 
 You can pass any Docker image as the base, for example a CUDA image:
 ```bash
-python3 builder/create_docker_files.py myuser jazzy myorg/ros2-jazzy:latest \
+python3 builder/create_docker_files.py myuser noetic myorg/ros1-noetic:latest \
     -b nvidia/cuda:12.5.0-devel-ubuntu24.04 \
     --use-host-nvidia-driver \
     --output ~/my_docker
@@ -196,18 +197,22 @@ After running `create_docker_files.py`, the output directory contains a
 
 #### `extra.d/apt_packages.sh`
 
-Shell script executed as root after ROS is installed. Add apt packages,
-third-party repositories or any other system-level setup here.
+Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here.
+
+The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys` inside the image and can be called from this script to register additional rosdep keys that should be ignored (useful for packages not available in the standard Ubuntu/ROS1 repositories):
 
 ```bash
 #!/usr/bin/env bash
 apt-get update
-apt-get install -y --no-install-recommends libopencv-dev ros-jazzy-moveit
+apt-get install -y --no-install-recommends libopencv-dev ros-noetic-moveit
 
 # Adding a third-party repository:
 curl -sSL https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
 add-apt-repository "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main"
 apt-get update && apt-get install -y clang-18
+
+# Ignore a custom rosdep key not available in standard repositories:
+skip_rosdep_keys my_private_package another_unavailable_key
 ```
 
 > If you generated without `--use-host-nvidia-driver`, this file already
@@ -245,45 +250,49 @@ If the file contains only comments or blank lines, the Rust toolchain is
 
 ### Startup scripts (entrypoint.d)
 
-When the container starts, the custom entrypoint runs all scripts found in `~/.entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are
-**sourced** (they run in the same process and can set environment variables used by later scripts). Scripts with a `.txt` extension are printed to stdout.
+When the container starts, the custom entrypoint runs all scripts found in `/etc/entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are **sourced**. Scripts with a `.txt` extension are printed to stdout.
 
 Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`, where `NN` is **exactly two digits** (e.g. `01`, `50`, `99`). Files that do not match this pattern cause the container to abort at startup.
 
-Two scripts are always included and are mandatory:
+Two scripts are always included:
 
 | Script | Purpose |
 |---|---|
-| `00-checks.sh` | Validates the naming convention of all files in `entrypoint.d/` and checks that `99-uid-gid-adapt.sh` is present. Runs first. |
-| `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. |
+| `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. Do not use `99` for your own scripts. |
+
+The behaviour of `99-uid-gid-adapt.sh` requires the following preconditions. If they are not met, the container aborts with a clear error message:
+
+| Precondition | Requirement |
+|---|---|
+| Active user at startup | Must be `root` (UID 0) |
+| `HOST_UID` | Must exist, be non-empty, and be an integer greater than 1000 |
+| `HOST_UPGID` | Must exist, be non-empty, and be an integer greater than 1000 |
+
+When all preconditions are met, `99-uid-gid-adapt.sh` remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start the development user session.
+
+The typical setup is `user: root` in docker-compose with `HOST_UID=$(id -u)` and `HOST_UPGID=$(id -g)` provided via a `.env` file or environment variables.
+
+**How the active user at container startup is determined**
+
+With `docker run`:
+1. `--user <user>` passed in the CLI: the specified user is active, overriding any `USER` instruction in the Dockerfile.
+2. No `--user` in the CLI: the user specified by the `USER` instruction in the Dockerfile is active.
+
+With `docker compose up`:
+1. `--user <user>` passed in the CLI: the specified user is active, overriding both any `user:` field in the compose file and any `USER` instruction in the Dockerfile.
+2. No `--user` in the CLI and `user:` present in the compose file: the value of `user:` is active, overriding the Dockerfile `USER`.
+3. No `--user` in the CLI and no `user:` in the compose file: the user specified by the `USER` instruction in the Dockerfile is active.
+
+With VS Code Dev Containers:
+- If you use VS Code Dev Containers with a `devcontainer.json` configuration file, the container starts according to the `docker-compose.yaml` referenced by `devcontainer.json` (or the Dockerfile `USER`), following the same rules as `docker compose up` above.
+- `remoteUser` in `devcontainer.json` does **not** change the startup user of the container. VS Code connects as `remoteUser` after the container is already running, meaning the entrypoint (including `99-uid-gid-adapt.sh`) has already completed with the startup user before VS Code makes its connection.
+- **In images generated by this project, `remoteUser` has no practical effect and should not be used.** The reason: the container starts as `root`, `99-uid-gid-adapt.sh` remaps the UID/GID and switches to `IMAGE_MAIN_USER` via `exec gosu`. By the time VS Code connects, the active process is already `IMAGE_MAIN_USER`. Setting `remoteUser` would tell VS Code to do an additional user switch on top of one that already happened correctly, which is redundant and potentially confusing.
 
 When `--use-host-nvidia-driver` is passed, an additional script is included:
 
 | Script | Purpose |
 |---|---|
-| <nobr>`98-gpu-driver-check.sh`</nobr> | Warns at startup if the NVIDIA driver is not visible in the container (e.g. `--gpus all` was omitted or the NVIDIA Container Toolkit is not installed). Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). |
-
-#### Adding your own startup scripts
-
-You can add custom scripts to `.resources/entrypoint.d/` **before** running `build.py`. They will be copied into the image and executed at every container startup.
-
-```bash
-# Example: print a banner at startup
-cat > .resources/entrypoint.d/10-banner.txt <<'EOF'
-Welcome to my ROS 2 development container!
-EOF
-
-# Example: set custom environment variables at startup
-cat > .resources/entrypoint.d/20-env.sh <<'EOF'
-export MY_VAR=hello
-EOF
-```
-
-Rules to follow:
-- Filename must be `NN-name.sh` or `NN-name.txt` with exactly two digits.
-- Do not use `00` (reserved for checks) or `99` (reserved for UID/GID adaptation).
-- If `--use-host-nvidia-driver` was used, do not use `98` either.
-- `.sh` scripts are sourced — they run in the entrypoint process. Keep them fast and side-effect-free (no `exit`, no long-running commands).
+| <nobr>`98-nvidia-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`). In this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host. This is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout. If you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--use-host-nvidia-driver` was used. |
 
 #### Using a base image that has its own entrypoint
 
@@ -292,8 +301,8 @@ This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), wh
 Instead:
 
 1. Find the relevant script(s) in the base image entrypoint.
-2. Copy or adapt that logic into a new `.sh` file in `.resources/entrypoint.d/` using an appropriate numeric prefix (e.g. `10-nvidia-env.sh`).
-3. Run `build.py` as usual — the script will be picked up automatically.
+2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**, using an appropriate numeric prefix (e.g. `10-print-ros-env.sh`). `build.py` will copy it into the image automatically.
+3. Run `build.py` as usual. The script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:
 
@@ -318,6 +327,27 @@ You also need to provide the GID of the render device so all processes (includin
 echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
 ```
 
+**Warning at startup: `groups: cannot find name for group ID <N>`**
+
+When the container starts you may see a message like `groups: cannot find name for group ID 992`. This is expected and harmless. The GID comes from the host's render device group and does not have a corresponding name in the container's `/etc/group`. The process still belongs to that group and has full access to `/dev/dri/renderD*`. You can verify this inside the container:
+
+```bash
+# The GID appears in the output (as a number, without a name)
+id
+
+# The device is accessible
+ls -la /dev/dri/renderD128
+
+# Direct access test
+test -r /dev/dri/renderD128 && echo "access OK" || echo "no access"
+```
+
+---
+
+### rosbuild: catkin build wrapper
+
+`rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `catkin build` with sensible defaults enabled out of the box.
+
 ---
 
 ### Running the container
@@ -329,7 +359,7 @@ The output directory contains a `docker-compose-dev.yaml`. Copy it next to your 
 HOST_UID=1000          # your UID: id -u
 HOST_UPGID=1000        # your primary GID: id -g
 WORKSPACE=/home/myuser/my_workspace   # path to your workspace on the host
-RENDER_GID=992         # required if --use-host-nvidia-driver was used: stat -c %g /dev/dri/renderD128
+RENDER_GID=992         # GID of the render device group: stat -c %g /dev/dri/renderD128
 ```
 
 Then:
@@ -338,6 +368,12 @@ docker compose -f docker-compose-dev.yaml up
 ```
 
 The container starts as root, remaps the internal user to your `HOST_UID`/`HOST_UPGID`, and then drops to the development user. Files created inside the container will be owned by you on the host.
+
+---
+
+### CycloneDDS host tuning
+
+This section is not applicable to ROS 1 images.
 
 ---
 
@@ -353,7 +389,7 @@ The `builder/examples/` directory contains reference scripts for installing spec
 Running GUI applications inside a Docker container requires giving the container access to the host's display server.
 
 **IMPORTANT: This graphical setup has been tested on X11 and is not currently validated on Wayland hosts.**
-On a Wayland host you may need **XWayland** — the compatibility layer that allows X11 applications to run inside a Wayland session. On Ubuntu it is usually provided by the `xwayland` package and started automatically by most desktop sessions when needed.
+On a Wayland host you may need **XWayland**, the compatibility layer that allows X11 applications to run inside a Wayland session. On Ubuntu it is usually provided by the `xwayland` package and started automatically by most desktop sessions when needed.
 
 The generated `docker-compose-dev.yaml` already mounts `/tmp/.X11-unix` and forwards `DISPLAY`, which covers the X11 transport layer. What remains is telling the X server on the host to allow connections from the container process.
 
@@ -383,7 +419,7 @@ bash scripts/install_docker_gui_support.sh
 
 The script:
 
-1. Installs `/usr/local/bin/set_xauth_cookies.sh`, which generates `${XDG_RUNTIME_DIR}/cookies.xauth` — a file containing the X11 authentication tokens for the current session.
+1. Installs `/usr/local/bin/set_xauth_cookies.sh`, which generates `${XDG_RUNTIME_DIR}/cookies.xauth`, a file containing the X11 authentication tokens for the current session.
 2. Installs and enables a systemd user service (`set-xauth-cookies.service`) that runs the above script automatically every time a graphical session starts, via `graphical-session.target`. This works across all major desktop environments (GNOME, KDE, XFCE, etc.).
 3. Runs the script immediately so GUI support is available without requiring a re-login.
 
