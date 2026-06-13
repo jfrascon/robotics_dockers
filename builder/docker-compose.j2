@@ -28,7 +28,7 @@ services:
     # Usually not needed when all ROS2 nodes run inside the same container.
     # ipc: host
 
-    working_dir: {{ img_workspace_dir }}
+    working_dir: {{ image_main_user_home }}
 
     tty: true
     stdin_open: true
@@ -70,9 +70,7 @@ services:
     devices:
       # - /dev/ttyACM0:/dev/ttyACM0
       - /dev/bus/usb:/dev/bus/usb
-      {% if not use_host_nvidia_driver %}
       - /dev/dri:/dev/dri
-      {% endif %}
     #device_cgroup_rules:
     #  - "c 13:* rmw" # input
     #  - "c 166:* rmw" # ttyACM

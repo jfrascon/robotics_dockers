@@ -11,10 +11,13 @@ LABEL org.opencontainers.image.title="Project Docker Image" \
     org.opencontainers.image.description="A Docker image for development and testing" \
     org.opencontainers.image.authors="anon"
 
+# Build-time configuration variables.
+# These are set early so they are available to all RUN steps during the build.
 ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
     IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
     ROS_DISTRO="{{ ros_distro }}" \
     ROS_VERSION="1" \
+    USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}" \
     DEBIAN_FRONTEND="noninteractive"
 
 USER root
@@ -37,13 +40,22 @@ required_context_paths=(
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
     .resources/entrypoint.sh
+    .resources/check_entrypoint_d
+    .resources/skip_rosdep_keys
     .resources/rosbuild
     .resources/rosdep_init_update_install.sh
+    .resources/entrypoint.d/99-uid-gid-adapt.sh
+{% if use_host_nvidia_driver %}
+    .resources/entrypoint.d/98-nvidia-gpu-driver-check.sh
+{% endif %}
 )
 
 for relative_path in "${required_context_paths[@]}"; do
     if [ ! -f "${context_dir}/${relative_path}" ]; then
         handle_error 1 "File not found: ${context_dir}/${relative_path}"
+    fi
+    if [ ! -x "${context_dir}/${relative_path}" ]; then
+        handle_error 1 "File not executable: ${context_dir}/${relative_path}"
     fi
 done
 EOF
@@ -141,28 +153,41 @@ chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_M
 log "Installing file '/usr/local/bin/entrypoint.sh'"
 install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.sh /usr/local/bin/entrypoint.sh
 
+log "Installing file '/usr/local/bin/check_entrypoint_d'"
+install --owner root --group root --mode 775 /tmp/context/.resources/check_entrypoint_d /usr/local/bin/check_entrypoint_d
+
+log "Validating entrypoint.d context before installing scripts"
+bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
+
+log "Installing entrypoint.d scripts to /etc/entrypoint.d/"
+mkdir --parent /etc/entrypoint.d
+install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/99-uid-gid-adapt.sh /etc/entrypoint.d/99-uid-gid-adapt.sh
+{% if use_host_nvidia_driver %}
+install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/98-nvidia-gpu-driver-check.sh /etc/entrypoint.d/98-nvidia-gpu-driver-check.sh
+{% endif %}
+
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
 install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path"
 
 log "Installing file '/usr/local/bin/rosbuild'"
 install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild
 
-# Install .bash_aliases.user if present in context.
+# Install .bash_aliases.user if present in context (the user may have removed it between create_docker_files.py and build.py).
 if [ -e /tmp/context/.resources/bash_aliases.user ]; then
+    log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases.user'"
     install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
 fi
 
 log "Removing installation residues from apt cache"
-apt-get autoclean
-apt-get autoremove --purge -y
-apt-get clean
+apt-get autoclean >/dev/null
+apt-get autoremove --purge -y >/dev/null
+apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* &>/dev/null
 EOF
 
-# Configure timezone and localization settings.
-# - TZ: Set the timezone to UTC to ensure consistent time handling across environments.
-# - LC_ALL, LANG, LANGUAGE: Configure localization to US English and UTF-8 encoding, which helps
-#   avoiding issues with character encoding and ensures compatibility with most tools and libraries.
+# Runtime environment variables.
+# Set after all installation steps to avoid interfering with package configuration
+# (e.g. tzdata reads TZ during installation if set beforehand).
 # Items available for RCUTILS_CONSOLE_OUTPUT_FORMAT:
 # [{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})
 ENV TZ="Etc/UTC" \
