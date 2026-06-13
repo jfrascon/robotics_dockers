@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
         # ROS2 bashrc is plain bash — no Jinja2 variables.
         items_to_install[".resources/bashrc.user"] = [
-            "bashrc.user.ros2",
+            "bashrc.user",
             True,
         ]
 

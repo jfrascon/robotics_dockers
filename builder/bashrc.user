@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # This file is sourced by the container user's .bashrc to set up the ROS2 environment.
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # source_base_ros_setup
 #
 # Sources the base ROS2 setup with the following priority:
@@ -10,7 +10,7 @@
 #
 # Returns 0 on success, 1 when no valid ROS setup could be sourced.
 # Emits a warning instead of exiting so the shell remains usable.
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 source_base_ros_setup() {
   local ros_setup_path=""
   local ros_setup_reason=""
@@ -54,35 +54,38 @@ source_base_ros_setup() {
   return 1
 }
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # XDG Base Directory specification.
 # These directories are created by the image build process in install_base_system.sh.
 # Values are set unconditionally — this image defines its own layout.
-# XDG_RUNTIME_DIR is not managed by systemd-logind in containers; created here
-# as a per-user directory under /tmp with the required 0700 permissions.
-# ---------------------------------------------------------------------------
+# XDG_RUNTIME_DIR is set by the entrypoint to /run/user/<uid> (created as root
+# with the correct ownership and 0700 permissions). The fallback to
+# /tmp/runtime-<user> applies when the shell is started outside the entrypoint
+# (e.g. docker exec without gosu). The mkdir/chmod run unconditionally to
+# ensure the directory always exists and has the correct permissions.
+# --------------------------------------------------------------------------------------------------
 export XDG_CONFIG_HOME="${HOME}/.config"
 export XDG_DATA_HOME="${HOME}/.local/share"
 export XDG_CACHE_HOME="${HOME}/.cache"
 
 if [ -z "${XDG_RUNTIME_DIR}" ]; then
     export XDG_RUNTIME_DIR="/tmp/runtime-${USER}"
-
-    if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
-        mkdir -p "${XDG_RUNTIME_DIR}"
-        chmod 700 "${XDG_RUNTIME_DIR}"
-    fi
 fi
 
-# ---------------------------------------------------------------------------
+if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
+    mkdir -p "${XDG_RUNTIME_DIR}"
+    chmod 700 "${XDG_RUNTIME_DIR}"
+fi
+
+# --------------------------------------------------------------------------------------------------
 # Ensure ~/.local/bin is in PATH (user-local binaries installed by pip, etc.).
 # The check avoids duplicating it if already present.
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]] && export PATH="${HOME}/.local/bin:${PATH}"
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # ROS bootstrap: prefer workspace overlay, fall back to base ROS setup.
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 if [ -s "${HOME}/workspace/install/setup.bash" ]; then
   # shellcheck disable=SC1091
   if ! . "${HOME}/workspace/install/setup.bash"; then
@@ -93,9 +96,9 @@ else
   source_base_ros_setup
 fi
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Optional ROS tooling hooks.
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # shellcheck disable=SC1091
 [ -s /usr/share/gazebo/setup.sh ] && . /usr/share/gazebo/setup.sh
 # shellcheck disable=SC1091
@@ -103,16 +106,16 @@ fi
 # shellcheck disable=SC1091
 [ -s /usr/share/colcon_cd/function/colcon_cd.sh ] && . /usr/share/colcon_cd/function/colcon_cd.sh
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Local aliases (optional, non-fatal).
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # shellcheck disable=SC1091
 [ -f "${HOME}/.bash_aliases.user" ] && . "${HOME}/.bash_aliases.user"
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Deduplicate PATH variables to avoid unbounded growth on nested/repeated sources.
 # Guarded: deduplicate_path may not be installed in all images.
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 if command -v deduplicate_path >/dev/null 2>&1; then
   PATH="$(deduplicate_path "${PATH}")"
   export PATH

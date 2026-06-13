@@ -386,6 +386,15 @@ fi
 log info "Setting ownership of home directory '${image_main_user_home}' to '${HOST_UID}:${HOST_UPGID}', skipping mounted paths"
 chown_home_without_crossing_mounts "${image_main_user_home}" "${HOST_UID}:${HOST_UPGID}"
 
+# Create XDG_RUNTIME_DIR as root before dropping privileges. The directory must
+# be owned by IMAGE_MAIN_USER and have mode 0700 as required by the XDG spec.
+# /run/user/<uid> is the standard path used by systemd-logind on a real system.
+xdg_runtime_dir="/run/user/${HOST_UID}"
+log info "Creating XDG_RUNTIME_DIR '${xdg_runtime_dir}' for user '${IMAGE_MAIN_USER}'"
+mkdir -p "${xdg_runtime_dir}"
+chown "${HOST_UID}:${HOST_UPGID}" "${xdg_runtime_dir}"
+chmod 700 "${xdg_runtime_dir}"
+
 # gosu switches to IMAGE_MAIN_USER. HOME, USER, LOGNAME and SHELL are set explicitly
 # because gosu performs setuid/setgid + exec but does not initialize the user environment.
 # Without them, HOME would remain /root and .bashrc.user would never be sourced.
@@ -394,4 +403,5 @@ exec gosu "${IMAGE_MAIN_USER}" env \
     USER="${IMAGE_MAIN_USER}" \
     LOGNAME="${IMAGE_MAIN_USER}" \
     SHELL="${image_main_user_shell}" \
+    XDG_RUNTIME_DIR="${xdg_runtime_dir}" \
     "$@"

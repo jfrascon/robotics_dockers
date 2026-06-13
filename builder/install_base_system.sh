@@ -124,9 +124,9 @@ add-apt-repository --yes universe || handle_error 1 "Adding universe repository 
 # Upgrade the system to ensure all packages are up to date, now that apt-utils is installed.
 apt-get dist-upgrade --yes --no-install-recommends || handle_error 1 "Upgrade of the system failed"
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Unminimize the system
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 
 # In a development environment, man pages are useful for understanding commands and their options, so we install them.
 # Up to Ubuntu:22.04, the command 'unminimize' was already included in the Ubuntu base image provided by Docker Hub.
@@ -204,19 +204,6 @@ install_pkgs "${packages[@]}" || exit 1
 
 update-alternatives --install /usr/bin/python python /usr/bin/python3 100
 
-# uv: fast Python package and project manager (https://github.com/astral-sh/uv).
-# Installed system-wide under /usr/local/bin/ so it is available to both root
-# and the development user. Used later in this script to install Python
-# packages for the development user, replacing the pip --user
-# --break-system-packages workaround required on Ubuntu 24.04 (PEP 668).
-curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR="/usr/local/bin" sh
-
-if ! command -v uv >/dev/null 2>&1; then
-    handle_error 1 "uv was not found after installation"
-fi
-
-log info "uv version: $(uv --version)"
-
 # Set the system timezone to UTC to ensure consistent timekeeping across environments.
 # Handle timezone configuration explicitly and separately from the main package installation to avoid tzdata's
 # interactive prompts. Even with DEBIAN_FRONTEND=noninteractive, tzdata might still try to launch its dialog if the
@@ -251,9 +238,9 @@ locale-gen en_US.UTF-8 || handle_error 1 "locale-gen failed"
 update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8 # In case any command in this script after this line needs it.
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Create the requested user
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Starting with Ubuntu 24.04, a default non-root user named 'ubuntu' exists with UID 1000 and primary group 'ubuntu'
 # with GID 1000.
 # Reference: https://bugs.launchpad.net/cloud-images/+bug/2005129
@@ -388,27 +375,39 @@ if [ ! -s "${TARGET_USER_HOME}/.bashrc" ]; then
         handle_error 1 "Failed to copy /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
 fi
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Install Python packages for the user that are commonly used for development.
-#
-# uv pip install --user installs packages into the user's home directory
-# (~/.local/lib/python3.x/site-packages/) and exposes CLI binaries under
-# ~/.local/bin/. This is equivalent to pip install --user but does not require
-# the --break-system-packages workaround introduced by PEP 668 in Ubuntu 24.04.
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 python_packages=(argcomplete ruff cmake-format pre-commit jinja2 python-rapidjson)
 
 log info "Installing Python packages for the user '${TARGET_USER}': ${python_packages[*]}"
 
-# -H flag sets HOME to the target user's home directory so uv installs into
-# the correct ~/.local path.
-sudo -H -u "${TARGET_USER}" \
-    uv pip install --user --no-cache "${python_packages[@]}" || \
+# --user installs into the user's home directory (~/.local/lib/python3.x/site-packages/)
+# and exposes CLI binaries under ~/.local/bin/, leaving the system Python untouched.
+# The --no-cache-dir flag is used to avoid caching the downloaded packages.
+# The --disable-pip-version-check flag suppresses the 'new version of pip available' warning.
+pip_args=(--user --no-cache-dir --disable-pip-version-check)
+
+# The '--break-system-packages', described in PEP 668, was introduced in Python 3.11+ from Debian Bookworm and
+# Ubuntu 24.04 (Noble Numbat), onwards. PEP 668 prevents installing packages with 'pip install --user' in
+# system-managed environments. To work around this, the '--break-system-packages' flag is used to allow the
+# installation of packages in user-managed environments.
+# Ubuntu 22.04 (Jammy), and below, does NOT have this restriction, so 'pip install --user' should work fine.
+if python3 -m pip install --help | grep --quiet 'break-system-packages'; then
+    pip_args+=("--break-system-packages")
+fi
+
+# -H flag is used to set the HOME environment variable to the home directory of the target user.
+# The HOME environment variable is used by pip to determine the location of the user's home directory.
+# To avoid warning messages when installing packages we set the environment variable PATH to include
+# the user's local bin directory.
+sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
+    python3 -m pip install "${pip_args[@]}" "${python_packages[@]}" || \
     handle_error 1 "Failed to install Python packages for user '${TARGET_USER}'"
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Cleanup
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 log info "Removing installation residues from apt cache"
 apt-get autoclean >/dev/null
 apt-get autoremove --purge -y >/dev/null
