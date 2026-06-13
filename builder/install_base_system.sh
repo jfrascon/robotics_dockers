@@ -51,20 +51,20 @@ install_pkgs() {
 }
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
 
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 usage() {
@@ -229,7 +229,7 @@ install_pkgs locales || exit 1
 
 tmp="$(mktemp)"
 printf 'en_US.UTF-8 UTF-8\n' >"${tmp}"
-install --owner=root --group=root --mode=0644 "${tmp}" /etc/locale.gen || \
+install --owner=root --group=root --mode=0644 "${tmp}" /etc/locale.gen ||
     handle_error 1 "Failed to install /etc/locale.gen"
 rm -f "${tmp}"
 
@@ -256,7 +256,7 @@ export LANG=en_US.UTF-8 # In case any command in this script after this line nee
 if ! getent passwd "${TARGET_USER}" >/dev/null 2>&1; then
     # Create the user with the specified home directory and shell. Home is created physically.
     # when no option --home-dir is specified, the home directory is created in /home/<username>.
-    useradd --create-home --home-dir "${TARGET_USER_HOME}" --shell "${target_user_shell}" "${TARGET_USER}" || \
+    useradd --create-home --home-dir "${TARGET_USER_HOME}" --shell "${target_user_shell}" "${TARGET_USER}" ||
         handle_error 1 "Failed to create user '${TARGET_USER}'!"
 
     target_user_entry="$(getent passwd "${TARGET_USER}")"
@@ -277,7 +277,7 @@ else
 
     if [ "${current_shell}" != "${target_user_shell}" ]; then
         log info "Updating shell of user '${TARGET_USER}' (UID '${target_user_id}') from '${current_shell}' to '${target_user_shell}'"
-        usermod --shell "${target_user_shell}" "${TARGET_USER}" || \
+        usermod --shell "${target_user_shell}" "${TARGET_USER}" ||
             handle_error 1 "Failed to set shell of user '${TARGET_USER}' (UID '${target_user_id}') to '${target_user_shell}'!"
     fi
 
@@ -285,12 +285,12 @@ else
     current_home="$(echo "${target_user_entry}" | cut -d: -f6)"
 
     if [ -z "${current_home}" ]; then
-        usermod --home "${TARGET_USER_HOME}" "${TARGET_USER}" || \
+        usermod --home "${TARGET_USER_HOME}" "${TARGET_USER}" ||
             handle_error 1 "Failed to set home directory of user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER_HOME}'!"
     elif [ "${current_home}" != "${TARGET_USER_HOME}" ]; then
         log info "Updating home directory of user '${TARGET_USER}' (UID '${target_user_id}') from '${current_home}' to '${TARGET_USER_HOME}'"
         #--move-home: Move the content of the user's home directory to the new location
-        usermod --home "${TARGET_USER_HOME}" --move-home "${TARGET_USER}" || \
+        usermod --home "${TARGET_USER_HOME}" --move-home "${TARGET_USER}" ||
             handle_error 1 "Failed to set home directory of user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER_HOME}'!"
     fi
 fi
@@ -307,7 +307,7 @@ for group in dialout sudo video; do
     elif ! id -nG "${TARGET_USER}" | grep --quiet --word-regexp "${group}"; then
         group_id="$(echo "${group_entry}" | cut -d: -f3)"
         log info "Adding user '${TARGET_USER}' (UID '${target_user_id}') to group '${group}' (GID '${group_id}')"
-        usermod --append --groups "${group}" "${TARGET_USER}" || \
+        usermod --append --groups "${group}" "${TARGET_USER}" ||
             handle_error 1 "Failed to add user '${TARGET_USER}' (UID '${target_user_id}') to group '${group}' (GID '${group_id}')!"
     else
         group_id="$(echo "${group_entry}" | cut -d: -f3)"
@@ -322,7 +322,7 @@ done
 log info "Setting password for user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER}'"
 password="${TARGET_USER}"
 
-echo "${TARGET_USER}:${password}" | chpasswd || \
+echo "${TARGET_USER}:${password}" | chpasswd ||
     handle_error 1 "Failed to set password for '${TARGET_USER}' (UID '${target_user_id}')"
 
 # The following block is disabled and is left here for reference.
@@ -371,7 +371,7 @@ if [ ! -s "${TARGET_USER_HOME}/.bashrc" ]; then
     log info "File '${TARGET_USER_HOME}/.bashrc' does not exist. Copying file /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
     # Copy the default .bashrc from /etc/skel to the user's home directory.
     # Ownership is fixed later in the script with `chown ...`, so we can copy the file as root.
-    cp --verbose /etc/skel/.bashrc "${TARGET_USER_HOME}/.bashrc" || \
+    cp --verbose /etc/skel/.bashrc "${TARGET_USER_HOME}/.bashrc" ||
         handle_error 1 "Failed to copy /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
 fi
 
@@ -402,7 +402,7 @@ fi
 # To avoid warning messages when installing packages we set the environment variable PATH to include
 # the user's local bin directory.
 sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
-    python3 -m pip install "${pip_args[@]}" "${python_packages[@]}" || \
+    python3 -m pip install "${pip_args[@]}" "${python_packages[@]}" ||
     handle_error 1 "Failed to install Python packages for user '${TARGET_USER}'"
 
 #---------------------------------------------------------------------------------------------------

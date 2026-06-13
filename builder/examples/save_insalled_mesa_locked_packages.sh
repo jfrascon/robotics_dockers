@@ -6,7 +6,7 @@ log() {
     local fd="${2:-1}" # default to 1 (stdout) if not provided
 
     # Validate that fd is either 1 (stdout) or 2 (stderr)
-    if [[ "${fd}" != "1" && "${fd}" != "2" ]]; then
+    if [[ ${fd} != "1" && ${fd} != "2" ]]; then
         fd=1
     fi
 
@@ -30,7 +30,7 @@ for pkg in "${mesa_packages[@]}"; do
     pkg_full=$(dpkg -l | grep "^ii" | grep -E "^ii\s+${pkg}(:amd64)?\s" | awk '{print $2 "=" $3}')
 
     if [ -n "${pkg_full}" ]; then
-        echo "${pkg_full}" >> "${lockedfile}"
+        echo "${pkg_full}" >>"${lockedfile}"
     else
         log "Package '${pkg}' not found or not installed"
     fi

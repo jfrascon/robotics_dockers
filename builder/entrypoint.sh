@@ -25,12 +25,12 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-if [ -z "${HOST_UID}" ] || ! [[ "${HOST_UID}" =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
+if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
     echo "Error: HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}')." >&2
     exit 1
 fi
 
-if [ -z "${HOST_UPGID}" ] || ! [[ "${HOST_UPGID}" =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
+if [ -z "${HOST_UPGID}" ] || ! [[ ${HOST_UPGID} =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
     echo "Error: HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}')." >&2
     exit 1
 fi
@@ -55,7 +55,7 @@ fi
 shopt -s nullglob extglob
 
 # Collect all .sh and .txt files in alphabetical order.
-declare -a _PARTS=( "${_ENTRYPOINT_DIR}"/*@(.txt|.sh) )
+declare -a _PARTS=("${_ENTRYPOINT_DIR}"/*@(.txt|.sh))
 
 # nullglob and extglob are no longer needed after the glob expansion.
 # Deactivating them avoids unintended side effects in the sourced scripts.
@@ -63,7 +63,7 @@ shopt -u nullglob extglob
 
 for _file in "${_PARTS[@]}"; do
     case "${_file}" in
-        *.txt) cat "${_file}" ;;
-        *.sh)  source "${_file}" ;;
+    *.txt) cat "${_file}" ;;
+    *.sh) source "${_file}" ;;
     esac
 done

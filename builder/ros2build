@@ -75,10 +75,10 @@ while [[ $i -lt $# ]]; do
         # Also detect if user manually sets CMAKE_CXX_FLAGS to avoid injecting defaults.
         while [[ $j -lt $# ]]; do
             next_arg="${@:$((j + 1)):1}"
-            if [[ "${next_arg}" == --* ]]; then
+            if [[ ${next_arg} == --* ]]; then
                 break
             fi
-            if [[ "${next_arg}" == *CMAKE_CXX_FLAGS* ]]; then
+            if [[ ${next_arg} == *CMAKE_CXX_FLAGS* ]]; then
                 add_default_cxx_flags=false
             fi
             args+=("${next_arg}")
@@ -101,14 +101,14 @@ while [[ $i -lt $# ]]; do
         # Also decide whether to skip default mixins based on user input.
         while [[ $j -lt $# ]]; do
             next_arg="${@:$((j + 1)):1}"
-            if [[ "${next_arg}" == --* ]]; then
+            if [[ ${next_arg} == --* ]]; then
                 break
             fi
             mixin_args+=("${next_arg}")
             args+=("${next_arg}")
-            if [[ "${next_arg}" == "debug" || "${next_arg}" == "rel-with-deb-info" ]]; then
+            if [[ ${next_arg} == "debug" || ${next_arg} == "rel-with-deb-info" ]]; then
                 add_default_release_mixin=false
-            elif [[ "${next_arg}" == "compile-commands" ]]; then
+            elif [[ ${next_arg} == "compile-commands" ]]; then
                 add_default_compile_commands=false
             fi
             j=$((j + 1))

@@ -65,19 +65,19 @@ install_pkgs() {
 }
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 # remove_gpg_key_file <sources_file> <deb_pattern>
@@ -124,7 +124,7 @@ sanitize() {
             log info "ROS deb line found in '${matched_file}', removing file"
             rm --force "${matched_file}"
         fi
-    done <<< "${matched_files}"
+    done <<<"${matched_files}"
 }
 
 # --------------------------------------------------------------------------------------------------
@@ -144,16 +144,16 @@ version_codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"
 # --------------------------------------------------------------------------------------------------
 # Check for existing ROS installation.
 # --------------------------------------------------------------------------------------------------
-ros_distro_installed="$(dpkg --list | \
-    sed -nE 's/^ii\s+ros-([a-z]+)-ros-core.*$/\1/p' | \
+ros_distro_installed="$(dpkg --list |
+    sed -nE 's/^ii\s+ros-([a-z]+)-ros-core.*$/\1/p' |
     tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
 num_ros_distros="$(echo "${ros_distro_installed}" | wc -w)"
 
-[ "${num_ros_distros}" -gt 1 ] && \
+[ "${num_ros_distros}" -gt 1 ] &&
     handle_error 1 "More than one ROS distro is installed: ${ros_distro_installed}"
 
-[ "${num_ros_distros}" -eq 1 ] && [ "${ROS_DISTRO}" != "${ros_distro_installed}" ] && \
+[ "${num_ros_distros}" -eq 1 ] && [ "${ROS_DISTRO}" != "${ros_distro_installed}" ] &&
     handle_error 1 "Found ROS '${ros_distro_installed}' installed, but '${ROS_DISTRO}' was requested"
 
 # --------------------------------------------------------------------------------------------------
@@ -164,28 +164,28 @@ num_ros_distros="$(echo "${ros_distro_installed}" | wc -w)"
 # Simulation (Gazebo) packages are intentionally excluded — add them via extra.d/ if needed.
 # --------------------------------------------------------------------------------------------------
 packages=(
-  libasio-dev
-  python3-colcon-alias
-  python3-colcon-clean
-  python3-colcon-common-extensions
-  python3-colcon-hardware-acceleration
-  python3-colcon-mixin
-  python3-colcon-ros-distro
-  python3-colcon-ros-domain-id-coordinator
-  python3-mypy
-  python3-mypy-extensions
-  python3-rosdep
-  python3-vcstool
-  ros-${ROS_DISTRO}-ros-base
-  ros-${ROS_DISTRO}-rmw-cyclonedds-cpp
-  ros-${ROS_DISTRO}-rmw-fastrtps-cpp
-  ros-${ROS_DISTRO}-rmw-fastrtps-dynamic-cpp
-  ros-${ROS_DISTRO}-rqt
-  ros-${ROS_DISTRO}-rqt-common-plugins
-  ros-${ROS_DISTRO}-rqt-tf-tree
-  ros-${ROS_DISTRO}-rviz2
-  ros-${ROS_DISTRO}-xacro
-  ros-dev-tools
+    libasio-dev
+    python3-colcon-alias
+    python3-colcon-clean
+    python3-colcon-common-extensions
+    python3-colcon-hardware-acceleration
+    python3-colcon-mixin
+    python3-colcon-ros-distro
+    python3-colcon-ros-domain-id-coordinator
+    python3-mypy
+    python3-mypy-extensions
+    python3-rosdep
+    python3-vcstool
+    ros-${ROS_DISTRO}-ros-base
+    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp
+    ros-${ROS_DISTRO}-rmw-fastrtps-cpp
+    ros-${ROS_DISTRO}-rmw-fastrtps-dynamic-cpp
+    ros-${ROS_DISTRO}-rqt
+    ros-${ROS_DISTRO}-rqt-common-plugins
+    ros-${ROS_DISTRO}-rqt-tf-tree
+    ros-${ROS_DISTRO}-rviz2
+    ros-${ROS_DISTRO}-xacro
+    ros-dev-tools
 )
 
 # --------------------------------------------------------------------------------------------------
@@ -213,8 +213,8 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
 
     log info "Adding ROS GPG key to '${gpg_file}'"
     curl --fail --silent --show-error --location \
-        https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | \
-        gpg --dearmor --output "${gpg_file}" || \
+        https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc |
+        gpg --dearmor --output "${gpg_file}" ||
         handle_error 1 "Downloading or dearmoring the ROS2 GPG key failed"
 
     chmod 644 "${gpg_file}" || handle_error 1 "Failed to set permissions on '${gpg_file}'"
@@ -224,7 +224,7 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
     ros_list_file="/etc/apt/sources.list.d/ros.list"
 
     log info "Adding ROS2 deb line to '${ros_list_file}'"
-    echo "${ros_deb_line}" | tee "${ros_list_file}" >/dev/null || \
+    echo "${ros_deb_line}" | tee "${ros_list_file}" >/dev/null ||
         handle_error 1 "Failed to write ROS2 deb line to '${ros_list_file}'"
 
     packages+=("${ros_apt_source_package}")

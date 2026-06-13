@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
 
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 usage() {
@@ -143,7 +143,7 @@ if [ -n "${pkgs_dir}" ]; then
     # Update cache to ensure the latest package information is available.
     apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
 
-    HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -r -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src || \
+    HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -r -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src ||
         handle_error 1 "rosdep install failed"
 fi
 

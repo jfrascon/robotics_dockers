@@ -46,20 +46,20 @@ install_pkgs() {
 }
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
 
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 usage() {
@@ -139,7 +139,7 @@ if [ -f "${requirements_file}" ]; then
     fi
 
     sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
-        python3 -m pip install "${pip_args[@]}" -r "${requirements_file}" || \
+        python3 -m pip install "${pip_args[@]}" -r "${requirements_file}" ||
         handle_error 1 "Failed to install Python packages from '${requirements_file}'"
 else
     log info "No '${requirements_file}' found, skipping"
@@ -160,34 +160,34 @@ if [ -f "${rust_packages_file}" ]; then
 
         # Install rustup and stable toolchain as TARGET_USER.
         sudo -H -u "${TARGET_USER}" bash -c \
-            'curl --proto '"'"'=https'"'"' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y --no-modify-path --default-toolchain stable' || \
+            'curl --proto '"'"'=https'"'"' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y --no-modify-path --default-toolchain stable' ||
             handle_error 1 "Failed to install Rust toolchain for user '${TARGET_USER}'"
 
         # Bootstrap cargo-binstall using its official binary installer (no compilation needed).
         sudo -H -u "${TARGET_USER}" env HOME="${TARGET_USER_HOME}" bash -c \
-            'curl -L --proto '"'"'=https'"'"' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash' || \
+            'curl -L --proto '"'"'=https'"'"' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash' ||
             handle_error 1 "Failed to install cargo-binstall for user '${TARGET_USER}'"
 
         # Update stable toolchain.
         sudo -H -u "${TARGET_USER}" env HOME="${TARGET_USER_HOME}" \
-            "${TARGET_USER_HOME}/.cargo/bin/rustup" update stable || \
+            "${TARGET_USER_HOME}/.cargo/bin/rustup" update stable ||
             handle_error 1 "Failed to update Rust stable toolchain"
 
         # Install each package.
         for entry in "${rust_packages[@]}"; do
-            if [[ "${entry}" == source:* ]]; then
+            if [[ ${entry} == source:* ]]; then
                 crate_args="${entry#source:}"
                 crate_args="${crate_args#"${crate_args%%[![:space:]]*}"}"
                 log info "Installing Rust package from source: cargo install ${crate_args}"
                 # shellcheck disable=SC2086
                 sudo -H -u "${TARGET_USER}" env HOME="${TARGET_USER_HOME}" PATH="${TARGET_USER_HOME}/.cargo/bin:${PATH}" \
-                    cargo install ${crate_args} || \
+                    cargo install ${crate_args} ||
                     handle_error 1 "Failed to install Rust package (source): ${crate_args}"
             else
                 log info "Installing Rust package (binary): cargo binstall ${entry}"
                 # shellcheck disable=SC2086
                 sudo -H -u "${TARGET_USER}" env HOME="${TARGET_USER_HOME}" PATH="${TARGET_USER_HOME}/.cargo/bin:${PATH}" \
-                    cargo binstall --no-confirm ${entry} || \
+                    cargo binstall --no-confirm ${entry} ||
                     handle_error 1 "Failed to install Rust package (binary): ${entry}"
             fi
         done

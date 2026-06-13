@@ -2,20 +2,20 @@
 set -e
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
 
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 script="${BASH_SOURCE:-${0}}"

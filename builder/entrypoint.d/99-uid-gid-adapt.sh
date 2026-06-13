@@ -115,11 +115,27 @@ log() {
     local out_fd=1
 
     case "$1" in
-    info)    level="info";    shift ;;
-    error)   level="error";   shift; out_fd=2 ;;
-    warning) level="warning"; shift ;;
-    success) level="success"; shift ;;
-    debug)   level="debug";   shift ;;
+    info)
+        level="info"
+        shift
+        ;;
+    error)
+        level="error"
+        shift
+        out_fd=2
+        ;;
+    warning)
+        level="warning"
+        shift
+        ;;
+    success)
+        level="success"
+        shift
+        ;;
+    debug)
+        level="debug"
+        shift
+        ;;
     *) ;;
     esac
 
@@ -193,11 +209,11 @@ if [ "${current_user_id}" -ne 0 ]; then
     fail_validation "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
 fi
 
-if [ -z "${HOST_UID}" ] || ! [[ "${HOST_UID}" =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
+if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
     fail_validation "HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
 fi
 
-if [ -z "${HOST_UPGID}" ] || ! [[ "${HOST_UPGID}" =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
+if [ -z "${HOST_UPGID}" ] || ! [[ ${HOST_UPGID} =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
     fail_validation "HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
 fi
 
