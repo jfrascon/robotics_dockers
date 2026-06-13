@@ -7,13 +7,7 @@
 # files created inside the container are owned by the same user on the host.
 #
 # Flow:
-#   HOST_UID/HOST_UPGID not set
-#     -> start directly without adaptation
-#   HOST_UID/HOST_UPGID set but invalid (empty, non-integer, < 1000)
-#     -> fail_validation
-#   Current user is not root
-#     -> adaptation impossible, start as-is
-#   [Only reaches here if: current user is root + HOST_UID/UPGID valid]
+#   Validate that the active user is root and that HOST_UID/HOST_UPGID are valid.
 #   Adapt UID of IMAGE_MAIN_USER:
 #     HOST_UID free           -> usermod --uid
 #     HOST_UID taken by other -> error (user must resolve manually)
@@ -23,12 +17,12 @@
 #     HOST_UPGID taken by other -> rename dance (assign new name to conflicting
 #                                  group, then give our group name its GID)
 #     HOST_UPGID already set    -> no-op
-#   chown home (skipping bind mounts) -> gosu -> exec#
+#   chown home (skipping bind mounts) -> gosu -> exec
 # Render device access (/dev/dri/renderD*) is NOT handled here. It must be
 # configured via 'group_add' in docker-compose, passing the host GID of the
 # render device so all container processes inherit it from the start.
-# Exit immediately if a command exits with a non-zero status.
-# set -e
+
+# set -e is intentionally not used in this script.
 
 # Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
 
@@ -121,11 +115,27 @@ log() {
     local out_fd=1
 
     case "$1" in
-    info)    level="info";    shift ;;
-    error)   level="error";   shift; out_fd=2 ;;
-    warning) level="warning"; shift ;;
-    success) level="success"; shift ;;
-    debug)   level="debug";   shift ;;
+    info)
+        level="info"
+        shift
+        ;;
+    error)
+        level="error"
+        shift
+        out_fd=2
+        ;;
+    warning)
+        level="warning"
+        shift
+        ;;
+    success)
+        level="success"
+        shift
+        ;;
+    debug)
+        level="debug"
+        shift
+        ;;
     *) ;;
     esac
 
@@ -146,14 +156,13 @@ handle_error() {
 
 fail_validation() {
     log error "${1}"
-    [ "$(id --user)" -ne 0 ] && log info "${REMEMBER_MSG}"
     exit 1
 }
 
 print_banner() {
     local message="${1}"
     local fd="${2:-1}"          # default to 1 (stdout) if not provided
-    local border_char="${3:--}" # default to '=' if not provided
+    local border_char="${3:--}" # default to '-' if not provided
 
     # Validate that fd is either 1 (stdout) or 2 (stderr)
     if [[ ${fd} != "1" && ${fd} != "2" ]]; then
@@ -190,78 +199,25 @@ script="${BASH_SOURCE:-${0}}"
 
 log info "Executing script '${script}' with user '${current_user}' (UID '${current_user_id}') and primary group '${current_user_pri_group}' (UPGID '${current_user_pri_group_id}')"
 
-# Possible values of the two variables HOST_UID and HOST_UPGID are:
-# Case |  HOST_UID           |  HOST_UPGID
-# ---------------------------------------
-#  1   | undefined           |  undefined
-#  2   | defined, empty      |  undefined
-#  3   | defined, non-empty  |  undefined
-#  4   | undefined           |  defined, empty
-#  5   | defined, empty      |  defined, empty
-#  6   | defined, non-empty  |  defined, empty
-#  7   | undefined           |  defined, non-empty
-#  8   | defined, empty      |  defined, non-empty
-#  9   | defined, non-empty  |  defined, non-empty
-
-
-# Case is 9 is the one in which UID/GID adaptation is possible: both variables defined and
-# non-empty.
-# However, even if case 9 is satisfied, the non-empty values of both variables must be integers
-# greater than 1000 to be valid IDs and the active user must be root, since only root can change
-# UIDs and GIDs.
-
-# Case 1: HOST_UID and HOST_UPGID are both undefined, the UID/GID adaptation is not possible, so
-# just execute the command as-is, without adaptation, with whichever user is active.
-# The active user is determined in order of priority:
-#  1. --user flag in 'docker run'
-#  2. 'user' field in docker-compose
-#  3. Last USER instruction in the Dockerfile
-if [ -z "${HOST_UID+x}" ] && [ -z "${HOST_UPGID+x}" ]; then
-
-    [ -s "${current_user_home}/.bashrc.user" ] && . "${current_user_home}/.bashrc.user"
-    exec "$@"
-fi
-
-# Case 2-8: HOST_UID and HOST_UPGID are in a state that makes adaptation impossible (one of them is
-# undefined, or one of them is empty, so fail with a clear message.
-
-# If HOST_UID is empty, fail with a clear message.
-if [ -z "${HOST_UID}" ]; then
-    fail_validation "HOST_UID is empty. Either both HOST_UID and HOST_UPGID are undefined, or both must be defined with a non-empty integer value greater than 1000"
-fi
-
-# If HOST_UPGID is empty, fail with a clear message.
-if [ -z "${HOST_UPGID}" ]; then
-    fail_validation "HOST_UPGID is empty. Either both HOST_UID and HOST_UPGID are undefined, or both must be defined with a non-empty integer value greater than 1000"
-fi
-
-# From here on, both variables, HOST_UID and HOST_UPGID, are defined and non-empty, so adaptation is
-# possible in principle, but validation is still needed: both must be integers greater than 1000.
-# Integer values lower than 1000 are reserved for the operating system.
-
-if ! [[ ${HOST_UID} =~ ^-?[0-9]+$ ]]; then
-    fail_validation "HOST_UID must be an integer greater than 1000, given '${HOST_UID}'"
-fi
-
-if ! [[ ${HOST_UPGID} =~ ^-?[0-9]+$ ]]; then
-    fail_validation "HOST_UPGID must be an integer greater than 1000, given '${HOST_UPGID}'"
-fi
-
-if [ "${HOST_UID}" -lt 1000 ] || [ "${HOST_UPGID}" -lt 1000 ]; then
-    fail_validation "HOST_UPGID ('${HOST_UPGID}') and HOST_UID ('${HOST_UID}') must be greater than 1000"
-fi
-
-# If the execution reaches this point, case 9 is satisfied with both variables, HOST_UID and
-# HOST_UPGID, being integer values greater than 1000, so the last check before adaptation is to
-# verify if the current user is root, since only root can change UIDs and GIDs.
-log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"
-
+# ---------------------------------------------------------------------------
+# Redundant precondition checks.
+#
+# entrypoint.sh already validated these before running this script.
+# Repeated here so this script is self-contained and coherent on its own.
+# ---------------------------------------------------------------------------
 if [ "${current_user_id}" -ne 0 ]; then
-    # Since the current user is not root, adaptation is not possible.
-    log info "${REMEMBER_MSG}"
-    [ -s "${current_user_home}/.bashrc.user" ] && . "${current_user_home}/.bashrc.user"
-    exec "$@"
+    fail_validation "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
 fi
+
+if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
+    fail_validation "HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
+fi
+
+if [ -z "${HOST_UPGID}" ] || ! [[ ${HOST_UPGID} =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
+    fail_validation "HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
+fi
+
+log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"
 
 # If the variable ${IMAGE_MAIN_USER} is undefined or empty, fail with a clear message.
 # This is a very unlikely case since the Dockerfile should ensure that the variable IMAGE_MAIN_USER
@@ -285,6 +241,7 @@ image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
 [ "${image_main_user_id}" -eq 0 ] && handle_error 1 "IMAGE_MAIN_USER '${IMAGE_MAIN_USER}' has UID 0 (root). A non-root user is required."
 
 image_main_user_home="$(echo "${image_main_user_entry}" | cut -d: -f6)"
+image_main_user_shell="$(echo "${image_main_user_entry}" | cut -d: -f7)"
 image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
 image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
 
@@ -445,8 +402,22 @@ fi
 log info "Setting ownership of home directory '${image_main_user_home}' to '${HOST_UID}:${HOST_UPGID}', skipping mounted paths"
 chown_home_without_crossing_mounts "${image_main_user_home}" "${HOST_UID}:${HOST_UPGID}"
 
-# gosu starts a new session with the new user and group ids.
-exec gosu "${IMAGE_MAIN_USER}" bash -c '
-    [ -s "${HOME}/.bashrc.user" ] && . "${HOME}/.bashrc.user"
-    exec "$@"
-' bash "$@"
+# Create XDG_RUNTIME_DIR as root before dropping privileges. The directory must
+# be owned by IMAGE_MAIN_USER and have mode 0700 as required by the XDG spec.
+# /run/user/<uid> is the standard path used by systemd-logind on a real system.
+xdg_runtime_dir="/run/user/${HOST_UID}"
+log info "Creating XDG_RUNTIME_DIR '${xdg_runtime_dir}' for user '${IMAGE_MAIN_USER}'"
+mkdir -p "${xdg_runtime_dir}"
+chown "${HOST_UID}:${HOST_UPGID}" "${xdg_runtime_dir}"
+chmod 700 "${xdg_runtime_dir}"
+
+# gosu switches to IMAGE_MAIN_USER. HOME, USER, LOGNAME and SHELL are set explicitly
+# because gosu performs setuid/setgid + exec but does not initialize the user environment.
+# Without them, HOME would remain /root and .bashrc.user would never be sourced.
+exec gosu "${IMAGE_MAIN_USER}" env \
+    HOME="${image_main_user_home}" \
+    USER="${IMAGE_MAIN_USER}" \
+    LOGNAME="${IMAGE_MAIN_USER}" \
+    SHELL="${image_main_user_shell}" \
+    XDG_RUNTIME_DIR="${xdg_runtime_dir}" \
+    "$@"

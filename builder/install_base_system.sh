@@ -51,20 +51,20 @@ install_pkgs() {
 }
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
 
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 usage() {
@@ -124,9 +124,9 @@ add-apt-repository --yes universe || handle_error 1 "Adding universe repository 
 # Upgrade the system to ensure all packages are up to date, now that apt-utils is installed.
 apt-get dist-upgrade --yes --no-install-recommends || handle_error 1 "Upgrade of the system failed"
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Unminimize the system
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 
 # In a development environment, man pages are useful for understanding commands and their options, so we install them.
 # Up to Ubuntu:22.04, the command 'unminimize' was already included in the Ubuntu base image provided by Docker Hub.
@@ -229,7 +229,7 @@ install_pkgs locales || exit 1
 
 tmp="$(mktemp)"
 printf 'en_US.UTF-8 UTF-8\n' >"${tmp}"
-install --owner=root --group=root --mode=0644 "${tmp}" /etc/locale.gen || \
+install --owner=root --group=root --mode=0644 "${tmp}" /etc/locale.gen ||
     handle_error 1 "Failed to install /etc/locale.gen"
 rm -f "${tmp}"
 
@@ -238,9 +238,9 @@ locale-gen en_US.UTF-8 || handle_error 1 "locale-gen failed"
 update-locale LANG=en_US.UTF-8
 export LANG=en_US.UTF-8 # In case any command in this script after this line needs it.
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Create the requested user
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Starting with Ubuntu 24.04, a default non-root user named 'ubuntu' exists with UID 1000 and primary group 'ubuntu'
 # with GID 1000.
 # Reference: https://bugs.launchpad.net/cloud-images/+bug/2005129
@@ -256,7 +256,7 @@ export LANG=en_US.UTF-8 # In case any command in this script after this line nee
 if ! getent passwd "${TARGET_USER}" >/dev/null 2>&1; then
     # Create the user with the specified home directory and shell. Home is created physically.
     # when no option --home-dir is specified, the home directory is created in /home/<username>.
-    useradd --create-home --home-dir "${TARGET_USER_HOME}" --shell "${target_user_shell}" "${TARGET_USER}" || \
+    useradd --create-home --home-dir "${TARGET_USER_HOME}" --shell "${target_user_shell}" "${TARGET_USER}" ||
         handle_error 1 "Failed to create user '${TARGET_USER}'!"
 
     target_user_entry="$(getent passwd "${TARGET_USER}")"
@@ -277,7 +277,7 @@ else
 
     if [ "${current_shell}" != "${target_user_shell}" ]; then
         log info "Updating shell of user '${TARGET_USER}' (UID '${target_user_id}') from '${current_shell}' to '${target_user_shell}'"
-        usermod --shell "${target_user_shell}" "${TARGET_USER}" || \
+        usermod --shell "${target_user_shell}" "${TARGET_USER}" ||
             handle_error 1 "Failed to set shell of user '${TARGET_USER}' (UID '${target_user_id}') to '${target_user_shell}'!"
     fi
 
@@ -285,12 +285,12 @@ else
     current_home="$(echo "${target_user_entry}" | cut -d: -f6)"
 
     if [ -z "${current_home}" ]; then
-        usermod --home "${TARGET_USER_HOME}" "${TARGET_USER}" || \
+        usermod --home "${TARGET_USER_HOME}" "${TARGET_USER}" ||
             handle_error 1 "Failed to set home directory of user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER_HOME}'!"
     elif [ "${current_home}" != "${TARGET_USER_HOME}" ]; then
         log info "Updating home directory of user '${TARGET_USER}' (UID '${target_user_id}') from '${current_home}' to '${TARGET_USER_HOME}'"
         #--move-home: Move the content of the user's home directory to the new location
-        usermod --home "${TARGET_USER_HOME}" --move-home "${TARGET_USER}" || \
+        usermod --home "${TARGET_USER_HOME}" --move-home "${TARGET_USER}" ||
             handle_error 1 "Failed to set home directory of user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER_HOME}'!"
     fi
 fi
@@ -307,7 +307,7 @@ for group in dialout sudo video; do
     elif ! id -nG "${TARGET_USER}" | grep --quiet --word-regexp "${group}"; then
         group_id="$(echo "${group_entry}" | cut -d: -f3)"
         log info "Adding user '${TARGET_USER}' (UID '${target_user_id}') to group '${group}' (GID '${group_id}')"
-        usermod --append --groups "${group}" "${TARGET_USER}" || \
+        usermod --append --groups "${group}" "${TARGET_USER}" ||
             handle_error 1 "Failed to add user '${TARGET_USER}' (UID '${target_user_id}') to group '${group}' (GID '${group_id}')!"
     else
         group_id="$(echo "${group_entry}" | cut -d: -f3)"
@@ -317,11 +317,12 @@ done
 
 # Set password for the non-root user.
 # The non-root user can run commands with sudo without a password.
-# Set password equal to username
+# INTENTIONAL: the password is set to the username for convenience in development images.
+# This is acceptable because these images are for local development only and not for production.
 log info "Setting password for user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER}'"
 password="${TARGET_USER}"
 
-echo "${TARGET_USER}:${password}" | chpasswd || \
+echo "${TARGET_USER}:${password}" | chpasswd ||
     handle_error 1 "Failed to set password for '${TARGET_USER}' (UID '${target_user_id}')"
 
 # The following block is disabled and is left here for reference.
@@ -349,6 +350,7 @@ echo "${TARGET_USER}:${password}" | chpasswd || \
 
 # Create basic folders for configuration and binaries.
 dirs_to_create=(
+    "${TARGET_USER_HOME}/.cache"
     "${TARGET_USER_HOME}/.config"
     "${TARGET_USER_HOME}/.local/bin"
     "${TARGET_USER_HOME}/.local/lib"
@@ -369,24 +371,25 @@ if [ ! -s "${TARGET_USER_HOME}/.bashrc" ]; then
     log info "File '${TARGET_USER_HOME}/.bashrc' does not exist. Copying file /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
     # Copy the default .bashrc from /etc/skel to the user's home directory.
     # Ownership is fixed later in the script with `chown ...`, so we can copy the file as root.
-    cp --verbose /etc/skel/.bashrc "${TARGET_USER_HOME}/.bashrc" || \
+    cp --verbose /etc/skel/.bashrc "${TARGET_USER_HOME}/.bashrc" ||
         handle_error 1 "Failed to copy /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
 fi
 
-#-----------------------------------------------------------------------------------------------------------------------
-# Install Python packages for the user that are commonly used for development
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
+# Install Python packages for the user that are commonly used for development.
+#---------------------------------------------------------------------------------------------------
 python_packages=(argcomplete ruff cmake-format pre-commit jinja2 python-rapidjson)
 
 log info "Installing Python packages for the user '${TARGET_USER}': ${python_packages[*]}"
 
-pip_args=(--no-cache-dir --disable-pip-version-check)
-
-# Install packages in the user's home directory.
-pip_args+=(--user)
+# --user installs into the user's home directory (~/.local/lib/python3.x/site-packages/)
+# and exposes CLI binaries under ~/.local/bin/, leaving the system Python untouched.
+# The --no-cache-dir flag is used to avoid caching the downloaded packages.
+# The --disable-pip-version-check flag suppresses the 'new version of pip available' warning.
+pip_args=(--user --no-cache-dir --disable-pip-version-check)
 
 # The '--break-system-packages', described in PEP 668, was introduced in Python 3.11+ from Debian Bookworm and
-# Ubuntu 24.04 (Noble Numbat), onwards. PEP 668 prevents installing packages with  'pip install --user' in
+# Ubuntu 24.04 (Noble Numbat), onwards. PEP 668 prevents installing packages with 'pip install --user' in
 # system-managed environments. To work around this, the '--break-system-packages' flag is used to allow the
 # installation of packages in user-managed environments.
 # Ubuntu 22.04 (Jammy), and below, does NOT have this restriction, so 'pip install --user' should work fine.
@@ -396,20 +399,17 @@ fi
 
 # -H flag is used to set the HOME environment variable to the home directory of the target user.
 # The HOME environment variable is used by pip to determine the location of the user's home directory.
-# The --no-cache-dir flag is used to avoid caching the downloaded packages.
-# The --user flag is used to install the packages in the user's home directory.
 # To avoid warning messages when installing packages we set the environment variable PATH to include
 # the user's local bin directory.
-
 sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
-    python3 -m pip install "${pip_args[@]}" "${python_packages[@]}" || \
+    python3 -m pip install "${pip_args[@]}" "${python_packages[@]}" ||
     handle_error 1 "Failed to install Python packages for user '${TARGET_USER}'"
 
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 # Cleanup
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------
 log info "Removing installation residues from apt cache"
-apt-get autoclean
-apt-get autoremove --purge -y
-apt-get clean
+apt-get autoclean >/dev/null
+apt-get autoremove --purge -y >/dev/null
+apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* 1>/dev/null 2>&1

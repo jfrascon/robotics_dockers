@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 
 log() {
-  local type="${1:-info}"
-  local message="${2:-}"
-  printf '[%s] [%s] %s\n' \
-    "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-    "${type}" \
-    "${message}"
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
 }
 
 handle_error() {
-  local exit_code="${1:-1}"
-  local error_message="${2:-Unknown error}"
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
 
-  log error "${error_message} (exit code: ${exit_code})"
-  exit "${exit_code}"
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 usage() {
@@ -134,16 +134,16 @@ root_ros_home="${root_home}/.ros"
 # Make sure the ROS home directory exists.
 mkdir --parent --verbose "${root_ros_home}"
 
-HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep update --rosdistro "${ROS_DISTRO}"
+HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep update --rosdistro "${ROS_DISTRO}" || handle_error 1 "rosdep update failed"
 
 # At this point if pkg_dir is set, it is a valid directory.
 if [ -n "${pkgs_dir}" ]; then
     log info "Installing dependencies with rosdep for packages located at '${pkgs_dir}'"
 
     # Update cache to ensure the latest package information is available.
-    apt-get update
+    apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
 
-    HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src || \
+    HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -r -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src ||
         handle_error 1 "rosdep install failed"
 fi
 
@@ -170,7 +170,7 @@ mv --verbose "${root_ros_home}/rosdep" "${target_user_ros_home}/rosdep"
 chown --recursive "${target_user_id}:${target_user_pri_group_id}" "${target_user_ros_home}"
 
 log info "Removing installation residues from apt cache"
-apt-get autoclean
-apt-get autoremove --purge -y
-apt-get clean
+apt-get autoclean >/dev/null
+apt-get autoremove --purge -y >/dev/null
+apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* &>/dev/null
