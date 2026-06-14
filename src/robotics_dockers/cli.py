@@ -3,7 +3,15 @@ from __future__ import annotations
 import argparse
 import sys
 
-from robotics_dockers.config import DEFAULT_META_DESC, DEFAULT_META_TITLE, DockerContextConfig, get_ros_distros_help
+from robotics_dockers.config import (
+    DEFAULT_META_DESC,
+    DEFAULT_META_TITLE,
+    DockerContextConfig,
+    DockerContextResult,
+    ResolvedDockerContextConfig,
+    get_ros_distros_help,
+    resolve_config,
+)
 from robotics_dockers.errors import RoboticsDockersError
 from robotics_dockers.generator import generate_docker_context
 
@@ -75,13 +83,38 @@ def _run_create(args: argparse.Namespace) -> int:
     )
 
     try:
+        resolved_config = resolve_config(config)
         result = generate_docker_context(config)
     except RoboticsDockersError as exc:
         print(f'Error: {exc}', file=sys.stderr)
         return 1
 
-    print(f'Context directory: {result.context_dir}')
+    _print_create_summary(result, resolved_config)
     return 0
+
+
+def _print_create_summary(result: DockerContextResult, config: ResolvedDockerContextConfig) -> None:
+    resource_files = [path for path in result.generated_files if '.resources' in path.parts]
+
+    print('Created ROS 2 Docker build context.')
+    print()
+    print(f'  Context directory: {result.context_dir}')
+    print(f'  Image name:        {config.img_id}')
+    print(f'  ROS distro:        {config.ros_distro}')
+    print(f'  Base image:        {config.base_img}')
+    print(f'  Host NVIDIA:       {"enabled" if config.use_host_nvidia_driver else "disabled"}')
+    print()
+    print('Generated:')
+    print('  - Dockerfile')
+    print('  - build.py')
+    print('  - docker-compose-dev.yaml')
+    print(f'  - .resources/ ({len(resource_files)} support files)')
+    print()
+    print('Next steps:')
+    print('  1. Review optional customizations in .resources/extra.d/')
+    print('  2. Build the image:')
+    print(f'     cd {result.context_dir}')
+    print('     python3 build.py')
 
 
 if __name__ == '__main__':
