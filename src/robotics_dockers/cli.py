@@ -96,7 +96,7 @@ def _run_create(args: argparse.Namespace) -> int:
 def _print_create_summary(result: DockerContextResult, config: ResolvedDockerContextConfig) -> None:
     resource_files = [path for path in result.generated_files if '.resources' in path.parts]
 
-    print('Created ROS 2 Docker build context.')
+    print('Created ROS 2 Docker files.')
     print()
     print(f'  Output directory: {result.context_dir}')
     print(f'  Image name:        {config.img_id}')
