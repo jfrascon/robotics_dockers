@@ -1,3 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotics-dockers"
+version = "0.1.0"
+description = "Generate Docker build contexts for ROS 2 development images."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "jfr" }]
+dependencies = ["jinja2"]
+
+[project.optional-dependencies]
+dev = ["build", "pytest"]
+
+[project.scripts]
+robotics-dockers = "robotics_dockers.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/robotics_dockers"]
+
 # ==============================================================================
 # Ruff configuration (formatter + linter)
 # ==============================================================================
