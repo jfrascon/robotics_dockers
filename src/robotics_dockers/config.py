@@ -9,7 +9,7 @@ from robotics_dockers.errors import InvalidDockerImageNameError, InvalidImageUse
 
 ROS_DISTROS: dict[str, str] = {'humble': '22.04', 'jazzy': '24.04'}
 
-DEFAULT_META_TITLE = 'Docker image with ROS2'
+DEFAULT_META_TITLE = 'Docker image with ROS 2'
 DEFAULT_META_DESC = 'Docker image for development and testing'
 
 
@@ -52,7 +52,7 @@ def get_ros_distros_help() -> str:
     sorted_distros = sorted(ROS_DISTROS.items(), key=lambda item: (item[1], item[0]))
 
     for key, value in sorted_distros:
-        lines.append(f'    {key:<6}: ros2, ubuntu {value}.')
+        lines.append(f'    {key:<6}: ROS 2, Ubuntu {value}.')
 
     return '\n'.join(lines)
 

@@ -75,7 +75,7 @@ mkdir --parent --verbose "${root_ros_home}"
 mkdir --parent --verbose "${root_colcon_home}"
 
 # Download the colcon mixin and metadata repositories.
-log info "Installing colcon mixin and metadata for ROS2"
+log info "Installing colcon mixin and metadata for ROS 2"
 log info "Ownership of colcon databases will be fixed later "
 
 HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon mixin remove default >/dev/null 2>&1 || true

@@ -23,7 +23,7 @@ Usage:
   ${script_name} ROS_DISTRO TARGET_USER [--pkgs-dir DIR --help]
 
 Positional arguments:
-  ROS_DISTRO      Target ROS2 distribution (e.g., humble, jazzy)
+  ROS_DISTRO      Target ROS 2 distribution (e.g., humble, jazzy)
   TARGET_USER     Target system user name
 
 Options:

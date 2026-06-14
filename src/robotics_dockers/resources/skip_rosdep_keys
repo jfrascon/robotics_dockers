@@ -79,13 +79,13 @@ done
 # Keys to ignore must be written in a yaml file, and then that file (absolute path) must be
 # inserted in a file under the directory `/etc/ros/rosdep/sources.list.d`.
 # Files under the directory `/etc/ros/rosdep/sources.list.d` listing yaml files that contain rosdep
-# keys to ignored are called index files.
+# keys to ignore are called index files.
 # The command `rosdep` will read the index files in the directory `/etc/ros/rosdep/sources.list.d`
 # to find the yaml files that contain rosdep keys to ignore, and then read those yaml files to get
 # the rosdep keys to ignore.
 # With this mechanism, those keys are always ignored by rosdep in this system.
 
-# It is a design decision of this script to use a single yaml file to store the all rosdep keys to
+# It is a design decision of this script to use a single yaml file to store all the rosdep keys to
 # ignore, and a single index file to point to that yaml file.
 # This means that if the script is run multiple times with different keys, the new keys will be
 # added to the same yaml file, and the same index file will point to that yaml file.

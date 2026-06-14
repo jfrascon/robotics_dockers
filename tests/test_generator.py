@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,16 @@ def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
     assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
     assert tmp_path.joinpath('.resources', 'entrypoint.sh').is_file()
     assert tmp_path.joinpath('.resources', 'entrypoint.d', '99-uid-gid-adapt.sh').is_file()
+
+
+def test_generate_docker_context_uses_named_temporary_output_dir() -> None:
+    result = generate_docker_context(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest'))
+
+    try:
+        assert result.context_dir.parent == Path('/tmp')
+        assert result.context_dir.name.startswith('robotics_dockers_')
+    finally:
+        shutil.rmtree(result.context_dir)
 
 
 def test_generate_docker_context_uses_ubuntu_default_for_ros_distro(tmp_path: Path) -> None:
@@ -45,6 +56,25 @@ def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path:
     )
 
     assert tmp_path.joinpath('.resources', 'entrypoint.d', '98-nvidia-gpu-driver-check.sh').is_file()
+
+
+def test_generate_docker_context_uses_configured_image_metadata(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer',
+            ros_distro='jazzy',
+            img_id='local/ros-test:latest',
+            output_dir=tmp_path,
+            meta_title='Custom ROS 2 image',
+            meta_desc='Custom description',
+            meta_authors='Custom Author',
+        )
+    )
+
+    dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
+    assert 'org.opencontainers.image.title="Custom ROS 2 image"' in dockerfile
+    assert 'org.opencontainers.image.description="Custom description"' in dockerfile
+    assert 'org.opencontainers.image.authors="Custom Author"' in dockerfile
 
 
 def test_resolve_config_rejects_invalid_ros_distro() -> None:

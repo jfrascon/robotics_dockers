@@ -1,7 +1,23 @@
+import subprocess
 from importlib import resources
 
 from robotics_dockers.config import DockerContextConfig, resolve_config
 from robotics_dockers.generator import _create_items_to_install
+
+BASH_RESOURCE_FILES = (
+    'check_entrypoint_d',
+    'colcon_mixin_metadata.sh',
+    'deduplicate_path',
+    'entrypoint.sh',
+    'entrypoint.d/98-nvidia-gpu-driver-check.sh',
+    'entrypoint.d/99-uid-gid-adapt.sh',
+    'install_base_system.sh',
+    'install_extra_pkgs.sh',
+    'install_ros2.sh',
+    'ros2build',
+    'rosdep_init_update_install.sh',
+    'skip_rosdep_keys',
+)
 
 
 def test_all_referenced_resources_are_packaged() -> None:
@@ -12,6 +28,16 @@ def test_all_referenced_resources_are_packaged() -> None:
         source_name = spec[0]
         if source_name is not None:
             assert package_resources.joinpath(str(source_name)).exists(), source_name
+
+
+def test_bash_resources_parse_successfully() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+
+    for script_name in BASH_RESOURCE_FILES:
+        script = package_resources.joinpath(script_name)
+        result = subprocess.run(['bash', '-n', str(script)], capture_output=True, text=True, check=False)
+
+        assert result.returncode == 0, f'{script_name}: {result.stderr}'
 
 
 def test_colcon_setup_recreates_default_repositories_silently() -> None:

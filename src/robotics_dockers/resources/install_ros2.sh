@@ -2,7 +2,7 @@
 
 # install_ros2.sh
 #
-# Installs ROS2 and related packages into the image.
+# Installs ROS 2 and related packages into the image.
 # Must run as root.
 #
 # Usage: install_ros2.sh <ros_distro>
@@ -99,7 +99,7 @@ remove_gpg_key_file() {
 
 # sanitize <version_codename>
 #
-# Removes legacy ROS2 deb lines (and their GPG keys) from apt sources.
+# Removes legacy ROS 2 deb lines (and their GPG keys) from apt sources.
 # Needed because on 2025-06-01 the key/repo management moved to ros2-apt-source.
 # Ref: https://discourse.ros.org/t/ros-signing-key-migration-guide/43937
 sanitize() {
@@ -189,7 +189,7 @@ packages=(
 )
 
 # --------------------------------------------------------------------------------------------------
-# Remove legacy apt sources and install ROS2.
+# Remove legacy apt sources and install ROS 2.
 # --------------------------------------------------------------------------------------------------
 sanitize "${version_codename}"
 
@@ -215,7 +215,7 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
     curl --fail --silent --show-error --location \
         https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc |
         gpg --dearmor --output "${gpg_file}" ||
-        handle_error 1 "Downloading or dearmoring the ROS2 GPG key failed"
+        handle_error 1 "Downloading or dearmoring the ROS 2 GPG key failed"
 
     chmod 644 "${gpg_file}" || handle_error 1 "Failed to set permissions on '${gpg_file}'"
 
@@ -223,9 +223,9 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
     ros_deb_line="deb [arch=$(dpkg --print-architecture) signed-by=${gpg_file}] ${url} ${version_codename} main"
     ros_list_file="/etc/apt/sources.list.d/ros.list"
 
-    log info "Adding ROS2 deb line to '${ros_list_file}'"
+    log info "Adding ROS 2 deb line to '${ros_list_file}'"
     echo "${ros_deb_line}" | tee "${ros_list_file}" >/dev/null ||
-        handle_error 1 "Failed to write ROS2 deb line to '${ros_list_file}'"
+        handle_error 1 "Failed to write ROS 2 deb line to '${ros_list_file}'"
 
     packages+=("${ros_apt_source_package}")
 fi

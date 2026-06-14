@@ -14,18 +14,18 @@ services:
     cap_add:
       - NET_ADMIN # Be able to create network devices inside the container
 
-    # ROS2/DDS development is usually simpler with host networking,
+    # ROS 2/DDS development is usually simpler with host networking,
     # especially for discovery, multicast/unicast and robot/sensor networks.
     network_mode: host
 
     # Gives the container a larger private /dev/shm.
-    # This is useful for ROS2, Gazebo, RViz, cameras, OpenCV,
+    # This is useful for ROS 2, Gazebo, RViz, cameras, OpenCV,
     # Python multiprocessing and large DDS messages.
     # Ref: https://docs.nvidia.com/deeplearning/frameworks/user-guide/index.html#setincshmem
     shm_size: "2gb"
 
     # Enable only if shared-memory IPC between host and container is required.
-    # Usually not needed when all ROS2 nodes run inside the same container.
+    # Usually not needed when all ROS 2 nodes run inside the same container.
     # ipc: host
 
     working_dir: {{ image_main_user_home }}

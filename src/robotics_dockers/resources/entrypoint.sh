@@ -49,17 +49,11 @@ fi
 # Validate the entrypoint.d directory: existence, non-empty, required scripts, naming convention.
 "${_CHECK_SCRIPT}" "${_ENTRYPOINT_DIR}" || exit 1
 
-# nullglob: if a glob pattern matches no files, expand to nothing (empty) instead of
-#           keeping the unexpanded pattern as a literal string in the result.
-# extglob: enables extended glob syntax, needed for *@(.txt|.sh) used to collect scripts.
-shopt -s nullglob extglob
-
-# Collect all .sh and .txt files in alphabetical order.
-declare -a _PARTS=("${_ENTRYPOINT_DIR}"/*@(.txt|.sh))
-
-# nullglob and extglob are no longer needed after the glob expansion.
-# Deactivating them avoids unintended side effects in the sourced scripts.
-shopt -u nullglob extglob
+# Collect all .sh and .txt files in alphabetical order without enabling shell-specific glob modes.
+declare -a _PARTS=()
+while IFS= read -r -d '' _file; do
+    _PARTS+=("${_file}")
+done < <(find "${_ENTRYPOINT_DIR}" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.sh' \) -print0 | sort -z)
 
 for _file in "${_PARTS[@]}"; do
     case "${_file}" in

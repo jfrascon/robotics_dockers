@@ -186,7 +186,7 @@ def _resolve_context_dir(output_dir: Path | None) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
 
-    return Path(tempfile.mkdtemp(prefix='context_', dir='/tmp'))
+    return Path(tempfile.mkdtemp(prefix='robotics_dockers_', dir='/tmp'))
 
 
 def _resource_path(relative_path: str) -> resources.abc.Traversable:

@@ -7,9 +7,9 @@ FROM {{ base_img }}
 
 # The following labels adhere to the OCI Image Specification for standardized metadata.
 # Reference: https://github.com/opencontainers/image-spec/blob/main/annotations.md
-LABEL org.opencontainers.image.title="Project Docker Image" \
-    org.opencontainers.image.description="A Docker image for development and testing" \
-    org.opencontainers.image.authors="anon"
+LABEL org.opencontainers.image.title={{ meta_title | tojson }} \
+    org.opencontainers.image.description={{ meta_desc | tojson }} \
+    org.opencontainers.image.authors={{ meta_authors | tojson }}
 
 # Build-time configuration variables.
 # These are set early so they are available to all RUN steps during the build.
@@ -109,7 +109,7 @@ num_distros="$(echo "${ros_distro}" | wc -w)"
 # Ref: https://github.com/ros-infrastructure/rosdep/issues/649
 
 # Skip connextdds and gurumdds middleware packages — not available in the
-# standard Ubuntu/ROS2 apt repositories; rosdep would fail trying to resolve them.
+# standard Ubuntu/ROS 2 apt repositories; rosdep would fail trying to resolve them.
 rosdep_ignored_keys=(
     rmw_connextdds
     rmw_connextdds_common
