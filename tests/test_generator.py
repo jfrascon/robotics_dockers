@@ -1,0 +1,62 @@
+from pathlib import Path
+
+import pytest
+
+from robotics_dockers import DockerContextConfig, generate_docker_context
+from robotics_dockers.config import resolve_config
+from robotics_dockers.errors import InvalidDockerImageNameError, InvalidImageUserError, InvalidRosDistroError
+
+
+def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    assert result.context_dir == tmp_path.resolve()
+    assert tmp_path.joinpath('Dockerfile').is_file()
+    assert tmp_path.joinpath('build.py').is_file()
+    assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
+    assert tmp_path.joinpath('.resources', 'entrypoint.sh').is_file()
+    assert tmp_path.joinpath('.resources', 'entrypoint.d', '99-uid-gid-adapt.sh').is_file()
+
+
+def test_generate_docker_context_uses_ubuntu_default_for_ros_distro(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
+    assert 'FROM ubuntu:24.04' in dockerfile
+
+
+def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path: Path) -> None:
+    generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer',
+            ros_distro='jazzy',
+            img_id='local/ros-test:latest',
+            output_dir=tmp_path,
+            use_host_nvidia_driver=True,
+        )
+    )
+
+    assert tmp_path.joinpath('.resources', 'entrypoint.d', '98-nvidia-gpu-driver-check.sh').is_file()
+
+
+def test_resolve_config_rejects_invalid_ros_distro() -> None:
+    with pytest.raises(InvalidRosDistroError):
+        resolve_config(DockerContextConfig('developer', 'invalid', 'local/ros-test:latest'))
+
+
+def test_resolve_config_rejects_invalid_image_name() -> None:
+    with pytest.raises(InvalidDockerImageNameError):
+        resolve_config(DockerContextConfig('developer', 'jazzy', 'Invalid/Image:latest'))
+
+
+def test_resolve_config_rejects_invalid_user() -> None:
+    with pytest.raises(InvalidImageUserError):
+        resolve_config(DockerContextConfig('InvalidUser', 'jazzy', 'local/ros-test:latest'))
