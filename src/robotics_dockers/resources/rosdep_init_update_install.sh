@@ -111,17 +111,15 @@ target_user_home="$(echo "${target_user_entry}" | cut -d: -f6)"
 log info "Initializing rosdep"
 
 rosdep_sources_dir="/etc/ros/rosdep/sources.list.d"
-
-# To run rosdep init, the file 20-default.list must not exist.
-
-[ -f "${rosdep_sources_dir}/20-default.list" ] && {
-    log info "File '${rosdep_sources_dir}/20-default.list' already exists, removing it"
-    rm --verbose --force "${rosdep_sources_dir}/20-default.list"
-}
+rosdep_default_sources="${rosdep_sources_dir}/20-default.list"
 
 . /opt/ros/"${ROS_DISTRO}"/setup.bash || handle_error 1 "Sourcing ROS setup.bash failed"
 
-rosdep init || handle_error 1 "rosdep init failed"
+if [ -f "${rosdep_default_sources}" ]; then
+    log info "rosdep default sources already exist, skipping rosdep init"
+else
+    rosdep init || handle_error 1 "rosdep init failed"
+fi
 
 log info "Executing rosdep update as root. Ignore the warning about running as root"
 log info "rosdep database ownership will be fixed later"

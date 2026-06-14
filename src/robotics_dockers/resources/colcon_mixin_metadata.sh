@@ -78,8 +78,10 @@ mkdir --parent --verbose "${root_colcon_home}"
 log info "Installing colcon mixin and metadata for ROS2"
 log info "Ownership of colcon databases will be fixed later "
 
+HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon mixin remove default >/dev/null 2>&1 || true
 HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon mixin add default https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml || handle_error 1 "colcon mixin add failed"
 HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon mixin update default || handle_error 1 "colcon mixin update failed"
+HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon metadata remove default >/dev/null 2>&1 || true
 HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon metadata add default https://raw.githubusercontent.com/colcon/colcon-metadata-repository/master/index.yaml || handle_error 1 "colcon metadata add failed"
 HOME="${root_home}" ROS_HOME="${root_ros_home}" colcon metadata update default || handle_error 1 "colcon metadata update failed"
 
