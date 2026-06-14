@@ -1,6 +1,10 @@
-# robotics_dockers
+# robotics-dockers
 
-Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-use ROS 2 development images.
+Generate ready-to-use Docker build contexts for ROS 2 development images.
+
+`robotics-dockers` creates a Dockerfile, a build script, a development
+`docker-compose-dev.yaml` file, and the support scripts needed to run a ROS 2
+container with a development user that matches the host filesystem owner.
 
 ---
 
@@ -8,10 +12,12 @@ Tools and scripts for setting up Docker on Ubuntu hosts and generating ready-to-
 
 1. [Installing Docker](#installing-docker)
 2. [Docker and the host filesystem owner matching problem](#docker-and-the-host-filesystem-owner-matching-problem)
-3. [builder: generating ROS 2 Docker images](#builder--generating-ros-2-docker-images)
+3. [Generating ROS 2 Docker images](#generating-ros-2-docker-images)
     - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
     - [Quick start](#quick-start)
-    - [create_docker_files.py reference](#create_docker_filespy-reference)
+    - [CLI reference](#cli-reference)
+    - [Python API](#python-api)
     - [build.py reference](#buildpy-reference)
     - [Customizing the output](#customizing-the-output)
     - [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
@@ -93,9 +99,11 @@ See [Running the container](#running-the-container) for how to pass `HOST_UID` a
 
 ---
 
-## builder: generating ROS 2 Docker images
+## Generating ROS 2 Docker images
 
-The `builder/` directory contains the tooling to generate a complete Docker build context for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a `docker-compose-dev.yaml`, and all supporting resources.
+The `robotics-dockers create` command generates a complete Docker build context
+for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a
+`docker-compose-dev.yaml`, and all supporting resources.
 
 ---
 
@@ -103,7 +111,6 @@ The `builder/` directory contains the tooling to generate a complete Docker buil
 
 - Docker Engine
 - Python 3.10+
-- Python packages: `jinja2`
 
 If you intend to use an NVIDIA GPU:
 - NVIDIA driver installed on the host (`nvidia-smi` works)
@@ -111,14 +118,32 @@ If you intend to use an NVIDIA GPU:
 
 ---
 
+### Installation
+
+Install the package from a local checkout:
+
+```bash
+pip install .
+```
+
+For development, install it in editable mode with the test dependencies:
+
+```bash
+pip install -e '.[dev]'
+```
+
+The install creates the `robotics-dockers` command.
+
+---
+
 ### Quick start
 
 ```bash
 # See help:
-python3 builder/create_docker_files.py -h
+robotics-dockers create -h
 
 # Generate the build context:
-python3 builder/create_docker_files.py myuser jazzy myorg/ros2-jazzy:latest --output ~/my_docker
+robotics-dockers create myuser jazzy myorg/ros2-jazzy:latest --output ~/my_docker
 
 # Optionally edit extra packages before building:
 echo 'apt-get install -y --no-install-recommends ffmpeg' >> ~/my_docker/.resources/extra.d/apt_packages.sh
@@ -138,11 +163,15 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ---
 
-### create_docker_files.py reference
+### CLI reference
 
 ```
-usage: create_docker_files.py [-h] [-b BASE_IMG]
-                               [--use-host-nvidia-driver] [--output OUTPUT]
+usage: robotics-dockers create [-h] [-b BASE_IMG]
+                               [--use-host-nvidia-driver]
+                               [--output OUTPUT]
+                               [--meta-title META_TITLE]
+                               [--meta-desc META_DESC]
+                               [--meta-authors META_AUTHORS]
                                image_main_user ros_distro img_id
 ```
 
@@ -154,6 +183,9 @@ usage: create_docker_files.py [-h] [-b BASE_IMG]
 | `-b BASE_IMG` | Base Docker image. Default: `ubuntu:X.Y` matched to the ROS distro |
 | `--use-host-nvidia-driver` | Enable NVIDIA GPU access via the host driver |
 | `--output DIR` | Directory where the output is written. Default: a temporary directory under `/tmp` |
+| `--meta-title TEXT` | Title written to the generated image metadata |
+| `--meta-desc TEXT` | Description written to the generated image metadata |
+| `--meta-authors TEXT` | Authors written to the generated image metadata |
 
 **Available ROS distros:**
 - `humble` - ROS 2, Ubuntu 22.04
@@ -163,11 +195,35 @@ usage: create_docker_files.py [-h] [-b BASE_IMG]
 
 You can pass any Docker image as the base, for example a CUDA image:
 ```bash
-python3 builder/create_docker_files.py myuser jazzy myorg/ros2-jazzy:latest \
+robotics-dockers create myuser jazzy myorg/ros2-jazzy:latest \
     -b nvidia/cuda:12.5.0-devel-ubuntu24.04 \
     --use-host-nvidia-driver \
     --output ~/my_docker
 ```
+
+---
+
+### Python API
+
+Other Python projects can call the generator without shelling out:
+
+```python
+from robotics_dockers import DockerContextConfig, generate_docker_context
+
+result = generate_docker_context(
+    DockerContextConfig(
+        image_main_user='myuser',
+        ros_distro='jazzy',
+        img_id='myorg/ros2-jazzy:latest',
+        output_dir='~/my_docker',
+    )
+)
+
+print(result.context_dir)
+```
+
+The Python API is the preferred integration point for tools that create larger
+ROS project layouts around the generated Docker context.
 
 ---
 
@@ -193,7 +249,7 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ### Customizing the output
 
-After running `create_docker_files.py`, the output directory contains a
+After running `robotics-dockers create`, the output directory contains a
 `.resources/extra.d/` folder with three files you can edit before building:
 
 #### `extra.d/apt_packages.sh`
@@ -447,8 +503,7 @@ The settings persist across reboots because `sysctl.d` files are loaded at start
 
 ### Examples
 
-The `builder/examples/` directory contains reference scripts for installing specific Mesa driver variants (default, Kisak PPA, Oibaf PPA, locked versions). These are not used automatically, copy the relevant parts into your
-`extra.d/apt_packages.sh`.
+The package includes reference scripts for installing specific Mesa driver variants (default, Kisak PPA, Oibaf PPA, locked versions). These are not used automatically; copy the relevant parts into your `extra.d/apt_packages.sh`.
 
 ---
 
