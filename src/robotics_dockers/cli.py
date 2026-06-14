@@ -98,7 +98,7 @@ def _print_create_summary(result: DockerContextResult, config: ResolvedDockerCon
 
     print('Created ROS 2 Docker build context.')
     print()
-    print(f'  Context directory: {result.context_dir}')
+    print(f'  Output directory: {result.context_dir}')
     print(f'  Image name:        {config.img_id}')
     print(f'  ROS distro:        {config.ros_distro}')
     print(f'  Base image:        {config.base_img}')

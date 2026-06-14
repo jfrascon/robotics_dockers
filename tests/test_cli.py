@@ -23,7 +23,7 @@ def test_python_module_cli_creates_context(tmp_path: Path) -> None:
 
     assert completed_process.returncode == 0, completed_process.stderr
     assert 'Created ROS 2 Docker build context.' in completed_process.stdout
-    assert f'Context directory: {tmp_path.resolve()}' in completed_process.stdout
+    assert f'Output directory: {tmp_path.resolve()}' in completed_process.stdout
     assert 'Image name:        local/ros-test:latest' in completed_process.stdout
     assert 'ROS distro:        jazzy' in completed_process.stdout
     assert 'Base image:        ubuntu:24.04' in completed_process.stdout
