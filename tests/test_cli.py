@@ -2,8 +2,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 
-def test_python_module_cli_creates_context(tmp_path: Path) -> None:
+
+@pytest.mark.parametrize('output_option', ['--output', '-o'])
+def test_python_module_cli_creates_context(tmp_path: Path, output_option: str) -> None:
     completed_process = subprocess.run(
         [
             sys.executable,
@@ -13,7 +16,7 @@ def test_python_module_cli_creates_context(tmp_path: Path) -> None:
             'developer',
             'jazzy',
             'local/ros-test:latest',
-            '--output',
+            output_option,
             str(tmp_path),
         ],
         check=False,

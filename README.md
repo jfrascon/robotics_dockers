@@ -168,7 +168,7 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 ```
 usage: robotics-dockers create [-h] [-b BASE_IMG]
                                [--use-host-nvidia-driver]
-                               [--output OUTPUT]
+                               [-o OUTPUT]
                                [--meta-title META_TITLE]
                                [--meta-desc META_DESC]
                                [--meta-authors META_AUTHORS]
@@ -182,7 +182,7 @@ usage: robotics-dockers create [-h] [-b BASE_IMG]
 | `img_id` | Docker image name and tag, e.g. `myorg/ros2-jazzy:latest` |
 | `-b BASE_IMG` | Base Docker image. Default: `ubuntu:X.Y` matched to the ROS distro |
 | `--use-host-nvidia-driver` | Enable NVIDIA GPU access via the host driver |
-| `--output DIR` | Directory where the output is written. Default: a temporary directory under `/tmp` |
+| `-o, --output DIR` | Directory where the output is written. Default: a temporary directory under `/tmp` |
 | `--meta-title TEXT` | Title written to the generated image metadata |
 | `--meta-desc TEXT` | Description written to the generated image metadata |
 | `--meta-authors TEXT` | Authors written to the generated image metadata |

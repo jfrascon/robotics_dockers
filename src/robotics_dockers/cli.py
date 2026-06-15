@@ -51,6 +51,7 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     create_parser.add_argument('--use-host-nvidia-driver', action='store_true', help="Use host's NVIDIA driver")
     create_parser.add_argument(
+        '-o',
         '--output',
         type=str,
         default=None,
