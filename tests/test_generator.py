@@ -5,7 +5,12 @@ import pytest
 
 from robotics_dockers import DockerContextConfig, generate_docker_context
 from robotics_dockers.config import resolve_config
-from robotics_dockers.errors import InvalidDockerImageNameError, InvalidImageUserError, InvalidRosDistroError
+from robotics_dockers.errors import (
+    InvalidDockerImageNameError,
+    InvalidImageUserError,
+    InvalidRosdepPackagesDirError,
+    InvalidRosDistroError,
+)
 
 
 def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
@@ -77,6 +82,31 @@ def test_generate_docker_context_uses_configured_image_metadata(tmp_path: Path) 
     assert 'org.opencontainers.image.authors="Custom Author"' in dockerfile
 
 
+def test_generate_docker_context_exposes_rosdep_packages_dir_option_by_default(tmp_path: Path) -> None:
+    result = generate_docker_context(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest', tmp_path))
+
+    build_script = result.context_dir.joinpath('build.py').read_text()
+    assert '"--pkgs-dir"' in build_script
+    assert 'if args.pkgs_dir:' in build_script
+
+
+def test_generate_docker_context_can_use_fixed_rosdep_packages_dir(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer',
+            ros_distro='jazzy',
+            img_id='local/ros-test:latest',
+            output_dir=tmp_path,
+            rosdep_packages_dir='../src',
+        )
+    )
+
+    build_script = result.context_dir.joinpath('build.py').read_text()
+    assert '"--pkgs-dir"' not in build_script
+    assert 'configured_pkgs_dir = Path("../src").expanduser()' in build_script
+    assert 'pkgs_dir = context_dir.joinpath(configured_pkgs_dir).resolve()' in build_script
+
+
 def test_resolve_config_rejects_invalid_ros_distro() -> None:
     with pytest.raises(InvalidRosDistroError):
         resolve_config(DockerContextConfig('developer', 'invalid', 'local/ros-test:latest'))
@@ -90,3 +120,8 @@ def test_resolve_config_rejects_invalid_image_name() -> None:
 def test_resolve_config_rejects_invalid_user() -> None:
     with pytest.raises(InvalidImageUserError):
         resolve_config(DockerContextConfig('InvalidUser', 'jazzy', 'local/ros-test:latest'))
+
+
+def test_resolve_config_rejects_empty_fixed_rosdep_packages_dir() -> None:
+    with pytest.raises(InvalidRosdepPackagesDirError):
+        resolve_config(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest', rosdep_packages_dir=' '))

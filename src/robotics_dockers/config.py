@@ -5,7 +5,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from robotics_dockers.errors import InvalidDockerImageNameError, InvalidImageUserError, InvalidRosDistroError
+from robotics_dockers.errors import (
+    InvalidDockerImageNameError,
+    InvalidImageUserError,
+    InvalidRosdepPackagesDirError,
+    InvalidRosDistroError,
+)
 
 ROS_DISTROS: dict[str, str] = {'humble': '22.04', 'jazzy': '24.04'}
 
@@ -24,6 +29,7 @@ class DockerContextConfig:
     meta_title: str = DEFAULT_META_TITLE
     meta_desc: str = DEFAULT_META_DESC
     meta_authors: str | None = None
+    rosdep_packages_dir: Path | str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,7 @@ class ResolvedDockerContextConfig:
     meta_title: str
     meta_desc: str
     meta_authors: str
+    rosdep_packages_dir: str | None
 
 
 def get_ros_distros_help() -> str:
@@ -64,6 +71,7 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
     base_img = config.base_img.strip() if config.base_img is not None else ''
     output_dir = Path(config.output_dir).expanduser().resolve() if config.output_dir is not None else None
     meta_authors = config.meta_authors if config.meta_authors is not None else getpass.getuser()
+    rosdep_packages_dir = str(config.rosdep_packages_dir).strip() if config.rosdep_packages_dir is not None else None
 
     if ros_distro not in ROS_DISTROS:
         raise InvalidRosDistroError(f"Invalid ROS distro '{ros_distro}'. Allowed:\n{get_ros_distros_help()}")
@@ -85,6 +93,9 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
             "letter or '_', followed by lowercase letters, digits, '-' or '_' (max 32 chars total)."
         )
 
+    if rosdep_packages_dir == '':
+        raise InvalidRosdepPackagesDirError('rosdep_packages_dir must be a non-empty path when provided.')
+
     return ResolvedDockerContextConfig(
         image_main_user=image_main_user,
         ros_distro=ros_distro,
@@ -95,6 +106,7 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
         meta_title=config.meta_title,
         meta_desc=config.meta_desc,
         meta_authors=meta_authors,
+        rosdep_packages_dir=rosdep_packages_dir,
     )
 
 
