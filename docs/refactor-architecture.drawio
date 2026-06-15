@@ -7,7 +7,7 @@
         <mxCell id="title" value="robotics-dockers: paquete instalable + API reutilizable" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
           <mxGeometry x="280" y="20" width="820" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="user-cli" value="Usuario CLI&#xa;robotics-dockers create ..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+        <mxCell id="user-cli" value="Usuario CLI&#xa;robotics-dockers new ..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
           <mxGeometry x="60" y="120" width="200" height="80" as="geometry" />
         </mxCell>
         <mxCell id="user-python" value="Proyecto Python&#xa;from robotics_dockers import ..." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">

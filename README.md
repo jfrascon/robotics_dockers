@@ -105,7 +105,7 @@ See [Running the container](#running-the-container) for how to pass `HOST_UID` a
 
 ## Generating ROS 2 Docker images
 
-The `robotics-dockers create` command generates a complete Docker build context
+The `robotics-dockers new` command generates a complete Docker build context
 for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a
 `docker-compose-dev.yaml`, and all supporting resources.
 
@@ -124,19 +124,25 @@ If you intend to use an NVIDIA GPU:
 
 ### Installation
 
-Install the package from a local checkout:
+Clone the repository and install the package in a virtual environment:
 
 ```bash
-pip install .
+cd ~/Downloads
+git clone https://github.com/jfrascon/robotics_dockers.git
+cd robotics_dockers
+
+python3 -m venv ~/venvs/robotics-dockers
+source ~/venvs/robotics-dockers/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install .
 ```
 
-For development, install it in editable mode with the test dependencies:
+The install creates the `robotics-dockers` command:
 
 ```bash
-pip install -e '.[dev]'
+robotics-dockers new -h
 ```
-
-The install creates the `robotics-dockers` command.
 
 ---
 
@@ -144,10 +150,10 @@ The install creates the `robotics-dockers` command.
 
 ```bash
 # See help:
-robotics-dockers create -h
+robotics-dockers new -h
 
 # Generate the build context:
-robotics-dockers create jazzy myorg/ros2-jazzy:latest --output ~/my_docker
+robotics-dockers new jazzy myorg/ros2-jazzy:latest --output ~/my_docker
 
 # Optionally edit extra packages before building:
 echo 'apt-get install -y --no-install-recommends ffmpeg' >> ~/my_docker/.resources/extra.d/apt_packages.sh
@@ -156,7 +162,7 @@ echo 'fd-find' >> ~/my_docker/.resources/extra.d/rust_packages.txt
 
 # Build the image:
 cd ~/my_docker
-python3 build.py
+python3 build.py --pull
 
 # Build with ROS package dependencies resolved via rosdep:
 python3 build.py --pkgs-dir /path/to/your/workspace/src
@@ -170,8 +176,8 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 ### CLI reference
 
 ```
-usage: robotics-dockers create [-h] [-b BASE_IMG]
-                               [-u IMAGE_MAIN_USER]
+usage: robotics-dockers new [-h] [-b BASE_IMG]
+                               [-u USER]
                                [--nvidia]
                                [-o OUTPUT]
                                [--meta-title META_TITLE]
@@ -200,7 +206,7 @@ usage: robotics-dockers create [-h] [-b BASE_IMG]
 
 You can pass any Docker image as the base, for example a CUDA image:
 ```bash
-robotics-dockers create jazzy myorg/ros2-jazzy:latest \
+robotics-dockers new jazzy myorg/ros2-jazzy:latest \
     -b nvidia/cuda:12.5.0-devel-ubuntu24.04 \
     -u myuser \
     --nvidia \
@@ -255,7 +261,7 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ### Customizing the output
 
-After running `robotics-dockers create`, the output directory contains a
+After running `robotics-dockers new`, the output directory contains a
 `.resources/extra.d/` folder with three files you can edit before building:
 
 #### `extra.d/apt_packages.sh`

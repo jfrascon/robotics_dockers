@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = _create_parser()
     args = parser.parse_args(argv)
 
-    if args.command == 'create':
+    if args.command == 'new':
         return _run_create(args)
 
     parser.print_help()
@@ -36,19 +36,19 @@ def _create_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest='command')
-    create_parser = subparsers.add_parser(
-        'create',
+    new_parser = subparsers.add_parser(
+        'new',
         help='generate a ROS 2 Docker build context',
         description='Generate a Docker build context for a ROS 2 development image.',
         allow_abbrev=False,
         formatter_class=lambda prog: argparse.RawTextHelpFormatter(prog, max_help_position=38),
     )
-    create_parser.add_argument('ros_distro', type=str, help=f'ROS distro.\n{get_ros_distros_help()}')
-    create_parser.add_argument('img_id', type=str, help='Image ID for the resulting Docker image')
-    create_parser.add_argument(
+    new_parser.add_argument('ros_distro', type=str, help=f'ROS distro.\n{get_ros_distros_help()}')
+    new_parser.add_argument('img_id', type=str, help='Image ID for the resulting Docker image')
+    new_parser.add_argument(
         '-b', '--base-img', type=str, default=None, help='Base image. Default: ubuntu:X.Y, matched to the ROS distro.'
     )
-    create_parser.add_argument(
+    new_parser.add_argument(
         '-u',
         '--image-main-user',
         type=str,
@@ -56,17 +56,17 @@ def _create_parser() -> argparse.ArgumentParser:
         metavar='USER',
         help='User to run containers for the resulting image. Default: dev.',
     )
-    create_parser.add_argument(
+    new_parser.add_argument(
         '--nvidia', action='store_true', dest='use_host_nvidia_driver', help="Use host's NVIDIA driver"
     )
-    create_parser.add_argument(
+    new_parser.add_argument(
         '--meta-title', type=str, default=DEFAULT_META_TITLE, help='Title to include in the image metadata'
     )
-    create_parser.add_argument(
+    new_parser.add_argument(
         '--meta-desc', type=str, default=DEFAULT_META_DESC, help='Description to include in the image metadata'
     )
-    create_parser.add_argument('--meta-authors', type=str, default=None, help='Authors of the image')
-    create_parser.add_argument(
+    new_parser.add_argument('--meta-authors', type=str, default=None, help='Authors of the image')
+    new_parser.add_argument(
         '-o',
         '--output',
         type=str,

@@ -19,7 +19,7 @@ robotics-dockers = "robotics_dockers.cli:main"
 That entry point is what makes this command available after installation:
 
 ```bash
-robotics-dockers create ...
+robotics-dockers new ...
 ```
 
 ### `src/robotics_dockers/cli.py`
@@ -33,7 +33,7 @@ It intentionally does not contain Docker generation logic. Its job is only to tr
 This file allows the package to be executed as a Python module:
 
 ```bash
-python -m robotics_dockers create ...
+python -m robotics_dockers new ...
 ```
 
 It delegates directly to `robotics_dockers.cli.main()`.
@@ -118,7 +118,7 @@ The generator reads these resources through `importlib.resources`, so they work 
 Running:
 
 ```bash
-robotics-dockers create jazzy local/ros:latest --image-main-user developer --output ./docker
+robotics-dockers new jazzy local/ros:latest --image-main-user developer --output ./docker
 ```
 
 creates a Docker context like:
@@ -153,7 +153,7 @@ These tests cover the Python API. They verify that `generate_docker_context` cre
 This test covers the module CLI:
 
 ```bash
-python -m robotics_dockers create ...
+python -m robotics_dockers new ...
 ```
 
 It verifies that the command exits successfully and creates the main Docker context files.
@@ -166,7 +166,7 @@ This test verifies that every resource referenced by the generator exists inside
 
 ### `README.md`
 
-The README now documents the installable package workflow, the `robotics-dockers create` CLI, and the Python API. It no longer presents `builder/create_docker_files.py` as the public interface.
+The README now documents the installable package workflow, the `robotics-dockers new` CLI, and the Python API. It no longer presents `builder/create_docker_files.py` as the public interface.
 
 ### `LICENSE`
 
