@@ -50,6 +50,7 @@ class ResolvedDockerContextConfig:
     meta_desc: str
     meta_authors: str
     rosdep_packages_dir: str | None
+    rosdep_packages_dir_mode: str
 
 
 def get_ros_distros_help() -> str:
@@ -96,6 +97,8 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
     if rosdep_packages_dir == '':
         raise InvalidRosdepPackagesDirError('rosdep_packages_dir must be a non-empty path when provided.')
 
+    rosdep_packages_dir_mode = _resolve_rosdep_packages_dir_mode(rosdep_packages_dir)
+
     return ResolvedDockerContextConfig(
         image_main_user=image_main_user,
         ros_distro=ros_distro,
@@ -107,6 +110,7 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
         meta_desc=config.meta_desc,
         meta_authors=meta_authors,
         rosdep_packages_dir=rosdep_packages_dir,
+        rosdep_packages_dir_mode=rosdep_packages_dir_mode,
     )
 
 
@@ -126,3 +130,15 @@ def is_valid_docker_image_name(name: str) -> bool:
     full_re = re.compile(rf'^{host_and_port_prefix}{path_re}{tag_re}$')
 
     return bool(full_re.match(name))
+
+
+def _resolve_rosdep_packages_dir_mode(rosdep_packages_dir: str | None) -> str:
+    if rosdep_packages_dir is None:
+        return 'cli'
+
+    # fixed_host_path is intentionally not named fixed_absolute: paths beginning with '~'
+    # are not absolute before expanduser(), but they are still host paths independent of context_dir.
+    if Path(rosdep_packages_dir).is_absolute() or rosdep_packages_dir.startswith('~'):
+        return 'fixed_host_path'
+
+    return 'fixed_relative'

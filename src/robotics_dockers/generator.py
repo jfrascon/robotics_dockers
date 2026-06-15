@@ -52,6 +52,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
                 'image_main_user': config.image_main_user,
                 'ros_distro': config.ros_distro,
                 'rosdep_packages_dir': config.rosdep_packages_dir,
+                'rosdep_packages_dir_mode': config.rosdep_packages_dir_mode,
             },
             True,
         ],

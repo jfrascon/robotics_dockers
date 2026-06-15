@@ -198,7 +198,7 @@ if __name__ == "__main__":
     cmd.extend(["--tag", img_id_to_build])
 
     # Always declare a 'pkgs' build context so the Dockerfile mount is always valid.
-{% if rosdep_packages_dir is none %}
+{% if rosdep_packages_dir_mode == 'cli' %}
     # The generated build script does not know where the ROS packages live.
     # If --pkgs-dir is provided, it points to the ROS packages directory.
     # Otherwise, an empty temporary directory is used.
@@ -210,14 +210,18 @@ if __name__ == "__main__":
             sys.exit(1)
     else:
         pkgs_dir = Path(tempfile.mkdtemp(prefix="pkgs_empty_", dir="/tmp"))
-{% else %}
+{% elif rosdep_packages_dir_mode == 'fixed_relative' %}
     # The generator already knows where the ROS packages live. Relative paths are resolved from
     # this build script's directory, which is the generated Docker output directory.
-    configured_pkgs_dir = Path({{ rosdep_packages_dir | tojson }}).expanduser()
-    if configured_pkgs_dir.is_absolute():
-        pkgs_dir = configured_pkgs_dir.resolve()
-    else:
-        pkgs_dir = context_dir.joinpath(configured_pkgs_dir).resolve()
+    pkgs_dir = context_dir.joinpath({{ rosdep_packages_dir | tojson }}).resolve()
+
+    if not pkgs_dir.is_dir():
+        print(f"Error: configured ROS packages directory '{pkgs_dir}' does not exist or is not a directory", file=sys.stderr)
+        sys.exit(1)
+{% elif rosdep_packages_dir_mode == 'fixed_host_path' %}
+    # The generator already knows where the ROS packages live. Host paths are resolved independently
+    # from this build script's directory, so absolute paths and '~' paths keep their host meaning.
+    pkgs_dir = Path({{ rosdep_packages_dir | tojson }}).expanduser().resolve()
 
     if not pkgs_dir.is_dir():
         print(f"Error: configured ROS packages directory '{pkgs_dir}' does not exist or is not a directory", file=sys.stderr)
