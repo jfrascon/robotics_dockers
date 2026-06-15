@@ -6,9 +6,7 @@
 
 Generate ready-to-use Docker build contexts for ROS 2 development images.
 
-`robotics-dockers` creates a Dockerfile, a build script, a development
-`docker-compose-dev.yaml` file, and the support scripts needed to run a ROS 2
-container with a development user that matches the host filesystem owner.
+`robotics-dockers` creates a Dockerfile, a build script, a development `docker-compose-dev.yaml` file, and the support scripts needed to run a ROS 2 container with a development user that matches the host filesystem owner.
 
 ---
 
@@ -26,7 +24,7 @@ container with a development user that matches the host filesystem owner.
     - [Customizing the output](#customizing-the-output)
     - [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
     - [NVIDIA GPU support](#nvidia-gpu-support)
-    - [rosbuild: colcon build wrapper](#rosbuild--colcon-build-wrapper)
+    - [rosbuild: colcon build wrapper](#rosbuild-colcon-build-wrapper)
     - [Running the container](#running-the-container)
     - [CycloneDDS host tuning](#cyclonedds-host-tuning)
     - [Examples](#examples)
@@ -58,7 +56,7 @@ After the script completes, log out and log back in (or restart) for the group m
 
 If you see an error like:
 
-```
+```bash
 permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
 ```
 
@@ -92,6 +90,7 @@ Most Docker images only provide the `root` user (UID 0). Running as root inside 
 When you mount a directory from your host into a container (`-v /host/path:/container/path`), files created inside the container are owned by whatever UID is active in the container. If that UID does not match your UID on the host, you will not be able to edit or delete those files from your host OS without using `sudo`.
 
 This is a well-known problem:
+
 - [Docker and the host filesystem owner matching problem](https://www.fullstaq.com/knowledge-hub/blogs/docker-and-the-host-filesystem-owner-matching-problem)
 - [Different file owner inside Docker container and in host machine](https://stackoverflow.com/questions/42624758/different-file-owner-inside-docker-container-and-in-host-machine)
 
@@ -117,6 +116,7 @@ for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a
 - Python 3.10+
 
 If you intend to use an NVIDIA GPU:
+
 - NVIDIA driver installed on the host (`nvidia-smi` works)
 - [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 
@@ -142,6 +142,12 @@ The install creates the `robotics-dockers` command:
 
 ```bash
 robotics-dockers new -h
+```
+
+For development, install the local checkout in editable mode with the test dependencies:
+
+```bash
+python -m pip install -e '.[dev]'
 ```
 
 ---
@@ -175,19 +181,19 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ### CLI reference
 
-```
+```bash
 usage: robotics-dockers new [-h] [-b BASE_IMG]
-                               [-u USER]
-                               [--nvidia]
-                               [-o OUTPUT]
-                               [--meta-title META_TITLE]
-                               [--meta-desc META_DESC]
-                               [--meta-authors META_AUTHORS]
-                               ros_distro img_id
+                                 [-u USER]
+                                 [--nvidia]
+                                 [-o OUTPUT]
+                                 [--meta-title META_TITLE]
+                                 [--meta-desc META_DESC]
+                                 [--meta-authors META_AUTHORS]
+                                 ros_distro img_id
 ```
 
 | Argument | Description |
-|---|---|
+| --- | --- |
 | `ros_distro` | ROS distro: `humble`, `jazzy` |
 | `img_id` | Docker image name and tag, e.g. `myorg/ros2-jazzy:latest` |
 | `-b BASE_IMG` | Base Docker image. Default: `ubuntu:X.Y` matched to the ROS distro |
@@ -199,12 +205,14 @@ usage: robotics-dockers new [-h] [-b BASE_IMG]
 | `--meta-authors TEXT` | Authors written to the generated image metadata |
 
 **Available ROS distros:**
+
 - `humble` - ROS 2, Ubuntu 22.04
 - `jazzy` - ROS 2, Ubuntu 24.04
 
 **Custom base image:**
 
 You can pass any Docker image as the base, for example a CUDA image:
+
 ```bash
 robotics-dockers new jazzy myorg/ros2-jazzy:latest \
     -b nvidia/cuda:12.5.0-devel-ubuntu24.04 \
@@ -241,12 +249,12 @@ ROS project layouts around the generated Docker context.
 
 ### build.py reference
 
-```
+```bash
 usage: build.py [-h] [-c] [-p] [--pkgs-dir DIR] ...
 ```
 
 | Argument | Description |
-|---|---|
+| --- | --- |
 | `-c`, `--cache` | Reuse cached Docker layers |
 | `-p`, `--pull` | Pull the latest base image before building |
 | `--pkgs-dir DIR` | Path to the ROS packages directory on the host (e.g. `~/workspace/src`). If provided, rosdep installs the dependencies of those packages into the image |
@@ -294,7 +302,7 @@ skip_rosdep_keys my_private_package another_unavailable_key
 
 Standard pip requirements file. Installed as `--user` for the container user.
 
-```
+```text
 numpy
 torch==2.3.0
 --index-url https://download.pytorch.org/whl/cu121
@@ -306,7 +314,7 @@ git+https://github.com/user/repo.git@main
 
 One Rust crate per line. Two modes:
 
-```
+```text
 # Binary mode (fast): downloads a pre-built binary
 ripgrep
 fd-find
@@ -328,34 +336,37 @@ Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`, wher
 
 Two scripts are always included:
 
-| Script | Purpose |
-|---|---|
+| Script                | Purpose                                                                                                                                                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. Do not use `99` for your own scripts. |
 
 The behaviour of `99-uid-gid-adapt.sh` requires the following preconditions. If they are not met, the container aborts with a clear error message:
 
-| Precondition | Requirement |
-|---|---|
-| Active user at startup | Must be `root` (UID 0) |
-| `HOST_UID` | Must exist, be non-empty, and be an integer greater than 1000 |
-| `HOST_UPGID` | Must exist, be non-empty, and be an integer greater than 1000 |
+| Precondition           | Requirement                                                    |
+| ---------------------- | -------------------------------------------------------------- |
+| Active user at startup | Must be `root` (UID 0)                                         |
+| `HOST_UID`             | Must exist, be non-empty, and be an integer greater than 1000  |
+| `HOST_UPGID`           | Must exist, be non-empty, and be an integer greater than 1000  |
 
 When all preconditions are met, `99-uid-gid-adapt.sh` remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start the development user session.
 
 The typical setup is `user: root` in docker-compose with `HOST_UID=$(id -u)` and `HOST_UPGID=$(id -g)` provided via a `.env` file or environment variables.
 
-**How the active user at container startup is determined**
+#### How the active user at container startup is determined
 
 With `docker run`:
+
 1. `--user <user>` passed in the CLI: the specified user is active, overriding any `USER` instruction in the Dockerfile.
 2. No `--user` in the CLI: the user specified by the `USER` instruction in the Dockerfile is active.
 
 With `docker compose up`:
+
 1. `--user <user>` passed in the CLI: the specified user is active, overriding both any `user:` field in the compose file and any `USER` instruction in the Dockerfile.
 2. No `--user` in the CLI and `user:` present in the compose file: the value of `user:` is active, overriding the Dockerfile `USER`.
 3. No `--user` in the CLI and no `user:` in the compose file: the user specified by the `USER` instruction in the Dockerfile is active.
 
 With VS Code Dev Containers:
+
 - If you use VS Code Dev Containers with a `devcontainer.json` configuration file, the container starts according to the `docker-compose.yaml` referenced by `devcontainer.json` (or the Dockerfile `USER`), following the same rules as `docker compose up` above.
 - `remoteUser` in `devcontainer.json` does **not** change the startup user of the container. VS Code connects as `remoteUser` after the container is already running, meaning the entrypoint (including `99-uid-gid-adapt.sh`) has already completed with the startup user before VS Code makes its connection.
 - **In images generated by this project, `remoteUser` has no practical effect and should not be used.** The reason: the container starts as `root`, `99-uid-gid-adapt.sh` remaps the UID/GID and switches to `IMAGE_MAIN_USER` via `exec gosu`. By the time VS Code connects, the active process is already `IMAGE_MAIN_USER`. Setting `remoteUser` would tell VS Code to do an additional user switch on top of one that already happened correctly, which is redundant and potentially confusing.
@@ -363,7 +374,7 @@ With VS Code Dev Containers:
 When `--nvidia` is passed, an additional script is included:
 
 | Script | Purpose |
-|---|---|
+| --- | --- |
 | <nobr>`98-nvidia-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`). In this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host. This is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout. If you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--nvidia` was used. |
 
 #### Using a base image that has its own entrypoint
@@ -421,7 +432,7 @@ test -r /dev/dri/renderD128 && echo "access OK" || echo "no access"
 `rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build` with sensible defaults enabled out of the box:
 
 | Default behaviour | colcon equivalent |
-|---|---|
+| --- | --- |
 | `--merge-install` | merges all install spaces into a single `install/` directory |
 | `--symlink-install` | symlinks Python files and other resources instead of copying |
 | `--mixin release` | enables release-mode compiler flags via colcon mixins |
@@ -430,11 +441,13 @@ test -r /dev/dri/renderD128 && echo "access OK" || echo "no access"
 | `-Wall -Wextra -Wpedantic ...` | injects common C++ warning flags via `CMAKE_CXX_FLAGS` |
 
 So instead of:
+
 ```bash
 colcon build --merge-install --symlink-install --mixin release --mixin compile-commands
 ```
 
 You just run:
+
 ```bash
 rosbuild
 ```
@@ -442,11 +455,12 @@ rosbuild
 Flags to opt out of the defaults:
 
 | Flag | Effect |
-|---|---|
+| --- | --- |
 | `--no-merge-install` | disables `--merge-install` |
 | `--no-symlink-install` | disables `--symlink-install` |
 
 Any other `colcon build` argument is passed through unchanged:
+
 ```bash
 # Build only specific packages in debug mode:
 rosbuild --packages-select my_pkg --no-symlink-install --mixin debug
@@ -467,6 +481,7 @@ RENDER_GID=992         # GID of the render device group: stat -c %g /dev/dri/ren
 ```
 
 Then:
+
 ```bash
 docker compose -f docker-compose-dev.yaml up
 ```
@@ -481,20 +496,20 @@ ROS 2 uses a DDS middleware for node communication. When large messages are exch
 
 The official tuning guide covers this: [ROS 2 DDS tuning, CycloneDDS section](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
 
-**Why these settings go on the host, not inside the container**
+#### Why these settings go on the host, not inside the container
 
 The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux kernel parameters controlled via `sysctl`. A Docker container shares the host kernel. It cannot set `sysctl` values that affect the whole system from inside (and doing so would require `--privileged`, which is a security risk). The host is the right place for kernel-level tuning.
 
-**Files provided**
+#### Files provided
 
 The `dds/cyclonedds/` directory contains two `sysctl.d` drop-in files ready to install on the host:
 
 | File | What it sets |
-|---|---|
+| --- | --- |
 | `10-cyclonedds.conf` | `net.core.rmem_max=2147483647` (2 GiB receive buffer) |
 | `10-ros2-cross-vendor-tuning.conf` | `net.ipv4.ipfrag_time=3`, `net.ipv4.ipfrag_high_thresh=134217728` (128 MiB) |
 
-**Installing on the host**
+#### Installing on the host
 
 ```bash
 # Copy the files to sysctl.d
