@@ -118,7 +118,7 @@ The generator reads these resources through `importlib.resources`, so they work 
 Running:
 
 ```bash
-robotics-dockers create developer jazzy local/ros:latest --output ./docker
+robotics-dockers create jazzy local/ros:latest --image-main-user developer --output ./docker
 ```
 
 creates a Docker context like:

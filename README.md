@@ -143,7 +143,7 @@ The install creates the `robotics-dockers` command.
 robotics-dockers create -h
 
 # Generate the build context:
-robotics-dockers create myuser jazzy myorg/ros2-jazzy:latest --output ~/my_docker
+robotics-dockers create jazzy myorg/ros2-jazzy:latest --output ~/my_docker
 
 # Optionally edit extra packages before building:
 echo 'apt-get install -y --no-install-recommends ffmpeg' >> ~/my_docker/.resources/extra.d/apt_packages.sh
@@ -167,20 +167,21 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ```
 usage: robotics-dockers create [-h] [-b BASE_IMG]
+                               [-u IMAGE_MAIN_USER]
                                [--nvidia]
                                [-o OUTPUT]
                                [--meta-title META_TITLE]
                                [--meta-desc META_DESC]
                                [--meta-authors META_AUTHORS]
-                               image_main_user ros_distro img_id
+                               ros_distro img_id
 ```
 
 | Argument | Description |
 |---|---|
-| `image_main_user` | Username for the development user inside the container |
 | `ros_distro` | ROS distro: `humble`, `jazzy` |
 | `img_id` | Docker image name and tag, e.g. `myorg/ros2-jazzy:latest` |
 | `-b BASE_IMG` | Base Docker image. Default: `ubuntu:X.Y` matched to the ROS distro |
+| `-u, --image-main-user USER` | Username for the development user inside the container. Default: `dev` |
 | `--nvidia` | Use host's NVIDIA driver |
 | `-o, --output DIR` | Directory where the output is written. Default: a temporary directory under `/tmp` |
 | `--meta-title TEXT` | Title written to the generated image metadata |
@@ -195,8 +196,9 @@ usage: robotics-dockers create [-h] [-b BASE_IMG]
 
 You can pass any Docker image as the base, for example a CUDA image:
 ```bash
-robotics-dockers create myuser jazzy myorg/ros2-jazzy:latest \
+robotics-dockers create jazzy myorg/ros2-jazzy:latest \
     -b nvidia/cuda:12.5.0-devel-ubuntu24.04 \
+    -u myuser \
     --nvidia \
     --output ~/my_docker
 ```
