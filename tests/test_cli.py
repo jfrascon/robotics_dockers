@@ -40,3 +40,26 @@ def test_python_module_cli_creates_context(tmp_path: Path, output_option: str) -
     assert tmp_path.joinpath('Dockerfile').is_file()
     assert tmp_path.joinpath('build.py').is_file()
     assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
+
+
+def test_python_module_cli_accepts_nvidia_option(tmp_path: Path) -> None:
+    completed_process = subprocess.run(
+        [
+            sys.executable,
+            '-m',
+            'robotics_dockers',
+            'create',
+            'developer',
+            'jazzy',
+            'local/ros-test:latest',
+            '--nvidia',
+            '-o',
+            str(tmp_path),
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert completed_process.returncode == 0, completed_process.stderr
+    assert 'Host NVIDIA:       enabled' in completed_process.stdout

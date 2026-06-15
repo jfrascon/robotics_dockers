@@ -49,7 +49,9 @@ def _create_parser() -> argparse.ArgumentParser:
     create_parser.add_argument(
         '-b', '--base-img', type=str, default=None, help='Base image. Default: ubuntu:X.Y, matched to the ROS distro.'
     )
-    create_parser.add_argument('--use-host-nvidia-driver', action='store_true', help="Use host's NVIDIA driver")
+    create_parser.add_argument(
+        '--nvidia', action='store_true', dest='use_host_nvidia_driver', help="Use host's NVIDIA driver"
+    )
     create_parser.add_argument(
         '-o',
         '--output',
