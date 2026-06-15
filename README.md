@@ -1,5 +1,9 @@
 # robotics-dockers
 
+<p align="center">
+  <img src="docs/assets/robotics_dockers_logo_512.png" alt="robotics-dockers logo" width="160">
+</p>
+
 Generate ready-to-use Docker build contexts for ROS 2 development images.
 
 `robotics-dockers` creates a Dockerfile, a build script, a development
