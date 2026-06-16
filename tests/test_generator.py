@@ -24,6 +24,7 @@ def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
     assert tmp_path.joinpath('Dockerfile').is_file()
     assert tmp_path.joinpath('build.py').is_file()
     assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
+    assert tmp_path.joinpath('.resources', 'rosdep_skip_keys.txt').is_file()
     assert tmp_path.joinpath('.resources', 'entrypoint.sh').is_file()
     assert tmp_path.joinpath('.resources', 'entrypoint.d', '99-uid-gid-adapt.sh').is_file()
 
@@ -47,6 +48,18 @@ def test_generate_docker_context_uses_ubuntu_default_for_ros_distro(tmp_path: Pa
 
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
     assert 'FROM ubuntu:24.04' in dockerfile
+
+
+def test_generate_docker_context_uses_rosdep_skip_keys_file(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
+    assert '.resources/rosdep_skip_keys.txt' in dockerfile
+    assert 'skip_rosdep_keys /tmp/context/.resources/rosdep_skip_keys.txt' in dockerfile
 
 
 def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path: Path) -> None:

@@ -20,10 +20,11 @@ handle_error() {
 usage() {
     cat <<EOF
 Usage:
-  ${script_name} KEY [KEY...]
+  ${script_name} FILE
 
 Positional arguments:
-  KEY  One or more rosdep keys to ignore.
+  FILE  Text file with one rosdep key to ignore per line.
+        Empty lines and lines that start with '#' are ignored.
 
 Options:
   --help           Show this help and exit
@@ -59,20 +60,24 @@ for arg in "$@"; do
     esac
 done
 
-[ "$#" -eq 0 ] && handle_error 1 "No rosdep keys provided"
+[ "$#" -ne 1 ] && handle_error 1 "Expected exactly one rosdep keys file argument"
 
-# Normalize the keys passed as positional arguments.
+rosdep_keys_input_file="${1}"
+[ ! -r "${rosdep_keys_input_file}" ] && handle_error 1 "Cannot read rosdep keys file '${rosdep_keys_input_file}'"
+
+# Normalize the keys listed in the input file.
 normalized_keys=()
-for raw_key in "$@"; do
+while IFS= read -r raw_key || [ -n "${raw_key}" ]; do
     trimmed_key="$(trim "${raw_key}")"
     [ -z "${trimmed_key}" ] && continue
+    [[ "${trimmed_key}" == \#* ]] && continue
     normalized_keys+=("${trimmed_key}: {ubuntu: []}")
-done
+done <"${rosdep_keys_input_file}"
 
 # If there are no normalized keys, log a message and exit with a zero status, since there is
 # nothing to do.
 [ "${#normalized_keys[@]}" -eq 0 ] && {
-    log info "No rosdep keys to register. Nothing to do."
+    log info "No rosdep keys to register from '${rosdep_keys_input_file}'. Nothing to do."
     exit 0
 }
 

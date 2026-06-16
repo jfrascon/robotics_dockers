@@ -86,6 +86,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
 
     items_to_install['.resources/colcon_mixin_metadata.sh'] = ['colcon_mixin_metadata.sh', True]
     items_to_install['.resources/skip_rosdep_keys'] = ['skip_rosdep_keys', True]
+    items_to_install['.resources/rosdep_skip_keys.txt'] = ['rosdep_skip_keys.txt', False]
     items_to_install['.resources/entrypoint.sh'] = ['entrypoint.sh', True]
     items_to_install['.resources/entrypoint.d/99-uid-gid-adapt.sh'] = ['entrypoint.d/99-uid-gid-adapt.sh', True]
 

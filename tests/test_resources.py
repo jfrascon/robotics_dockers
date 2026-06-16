@@ -19,6 +19,8 @@ BASH_RESOURCE_FILES = (
     'skip_rosdep_keys',
 )
 
+TEXT_RESOURCE_FILES = ('rosdep_skip_keys.txt',)
+
 
 def test_all_referenced_resources_are_packaged() -> None:
     resolved_config = resolve_config(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest'))
@@ -28,6 +30,13 @@ def test_all_referenced_resources_are_packaged() -> None:
         source_name = spec[0]
         if source_name is not None:
             assert package_resources.joinpath(str(source_name)).exists(), source_name
+
+
+def test_text_resources_are_packaged() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+
+    for resource_name in TEXT_RESOURCE_FILES:
+        assert package_resources.joinpath(resource_name).is_file(), resource_name
 
 
 def test_bash_resources_parse_successfully() -> None:

@@ -1,0 +1,8 @@
+# ROS 2 middleware packages not available in the standard Ubuntu/ROS 2 apt repositories.
+rmw_connextdds
+rmw_connextdds_common
+rti-connext-dds-cmake-module
+rmw_gurumdds_cpp
+gurumdds_cmake_module
+
+# Add project-specific rosdep keys below, one key per line.

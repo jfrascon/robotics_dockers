@@ -269,14 +269,40 @@ python3 build.py 2>&1 | tee /tmp/my_build.log
 
 ### Customizing the output
 
-After running `robotics-dockers new`, the output directory contains a
-`.resources/extra.d/` folder with three files you can edit before building:
+After running `robotics-dockers new`, the output directory contains files under
+`.resources/` that you can edit before building.
+
+#### `rosdep_skip_keys.txt`
+
+Text file with rosdep keys that should be ignored by rosdep inside the image.
+Add one key per line. Empty lines and lines that start with `#` are ignored.
+The generated file already contains ROS 2 middleware packages that are not
+available in the standard Ubuntu/ROS 2 apt repositories.
+
+The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys`
+inside the image. It receives a text file with one rosdep key per line and
+registers those keys in:
+
+```text
+/etc/ros/rosdep/rosdep_ignored_keys.yaml
+```
+
+For one-off manual use inside a running container, create a temporary file and
+pass it to the helper:
+
+```bash
+printf '%s\n' my_private_package another_unavailable_key > /tmp/rosdep_skip_keys.txt
+sudo skip_rosdep_keys /tmp/rosdep_skip_keys.txt
+```
+
+The same keys can also be skipped for a single rosdep command with rosdep's own
+`--skip-keys` option.
+
+The `.resources/extra.d/` folder contains three files you can edit before building:
 
 #### `extra.d/apt_packages.sh`
 
-Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here.
-
-The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys` inside the image and can be called from this script to register additional rosdep keys that should be ignored (useful for packages not available in the standard Ubuntu/ROS 2 repositories):
+Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here:
 
 ```bash
 #!/usr/bin/env bash
@@ -291,8 +317,6 @@ echo "deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] http://apt.llvm.org/no
     > /etc/apt/sources.list.d/llvm-toolchain-noble-18.list
 apt-get update && apt-get install -y clang-18
 
-# Ignore a custom rosdep key not available in standard repositories:
-skip_rosdep_keys my_private_package another_unavailable_key
 ```
 
 > If you generated without `--nvidia`, this file already

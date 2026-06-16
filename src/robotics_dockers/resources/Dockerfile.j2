@@ -42,6 +42,7 @@ required_context_paths=(
     .resources/entrypoint.sh
     .resources/check_entrypoint_d
     .resources/skip_rosdep_keys
+    .resources/rosdep_skip_keys.txt
     .resources/rosbuild
     .resources/rosdep_init_update_install.sh
     .resources/colcon_mixin_metadata.sh
@@ -100,21 +101,7 @@ num_distros="$(echo "${ros_distro}" | wc -w)"
 [ "${num_distros}" -gt 1 ] && handle_error 1 "More than one ROS_DISTRO found: ${ros_distro}"
 [ "${ROS_DISTRO}" != "${ros_distro}" ] && handle_error 1 "Found ROS_DISTRO '${ros_distro}', expected ROS_DISTRO '${ROS_DISTRO}'"
 
-# Rosdep keys to ignore.
-# Add one key per array element to extend the list.
-# Ref: https://github.com/ros-infrastructure/rosdep/issues/649
-
-# Skip connextdds and gurumdds middleware packages — not available in the
-# standard Ubuntu/ROS 2 apt repositories; rosdep would fail trying to resolve them.
-rosdep_ignored_keys=(
-    rmw_connextdds
-    rmw_connextdds_common
-    rti-connext-dds-cmake-module
-    rmw_gurumdds_cpp
-    gurumdds_cmake_module
-)
-
-bash /usr/local/bin/skip_rosdep_keys "${rosdep_ignored_keys[@]}" || \
+bash /usr/local/bin/skip_rosdep_keys /tmp/context/.resources/rosdep_skip_keys.txt || \
     handle_error 1 "Failed to run 'skip_rosdep_keys'"
 
 bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
