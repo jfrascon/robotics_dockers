@@ -72,11 +72,11 @@ APT::Install-Recommends "false";
 APT::Install-Suggests "false";
 EOF
 
-RUN --mount=type=bind,source=.resources/install_base_system.sh,target=/tmp/install_base_system.sh \
-    bash /tmp/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
+RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
+    bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
 
-RUN --mount=type=bind,source=.resources/install_ros.sh,target=/tmp/install_ros.sh \
-    bash /tmp/install_ros.sh "${ROS_DISTRO}"
+RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
+    bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}"
 
 # Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
 COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
