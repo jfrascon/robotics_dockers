@@ -1,4 +1,6 @@
-# ROS 2 middleware packages not available in the standard Ubuntu/ROS 2 apt repositories.
+# Optional ROS 2 middleware implementations that may require a license depending on the use case
+# (commercial, research, academic, evaluation, etc.). They are skipped by default in favor of
+# middleware implementations that do not require that separate licensing step.
 rmw_connextdds
 rmw_connextdds_common
 rti-connext-dds-cmake-module
