@@ -72,36 +72,26 @@ APT::Install-Recommends "false";
 APT::Install-Suggests "false";
 EOF
 
-# The next three RUN instructions intentionally mount .resources instead of copying these scripts into the image.
-# They are separate steps so the base system, ROS installation, and user-defined extra packages remain independent.
-# This keeps each build step easier to read, improves cache reuse when only one group changes, and avoids storing
-# build-only helper scripts in image layers.
-RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
-    bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
-
-RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
-    bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}"
-
 # Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
 COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
 
-# Install extra packages from extra.d/ (apt, pip, Rust).
-# Uses --mount so neither the script nor extra.d/ are added as layers.
-RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
-    bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
-
-# It uses --mount=type=bind for both the resources context and the pkgs context (rosdep packages dir).
 RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
     --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
 log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
 handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
 
-# Detect if any error occurred in the previous installation steps, and if that is the case
-# exit with an error before doing any further work.
+bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
+    handle_error 1 "Failed to run 'install_base_system.sh'"
 
 # Verify IMAGE_MAIN_USER exists in the system.
 image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}")"
 [ -z "${image_main_user_entry}" ] && handle_error 1 "User '${IMAGE_MAIN_USER}' not found"
+
+bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}" || \
+    handle_error 1 "Failed to run 'install_ros.sh'"
+
+bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
+    handle_error 1 "Failed to run 'install_extra_pkgs.sh'"
 
 # No ROS_DISTRO found at this point, exit with an error.
 # If more than one ROS_DISTRO is found, exit with an error.
