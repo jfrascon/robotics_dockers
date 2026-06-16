@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -e
 
 log() {
     local type="${1:-info}"
@@ -29,9 +28,7 @@ script_name="$(basename "${script}")"
 [ "$(id --user)" -ne 0 ] && handle_error 1 "root user must be active to run the script '${script_name}'"
 
 log info "Using system repositories to install Mesa packages"
-apt-get update
-
-log info "Resolving candidate versions for Mesa packages"
+apt-get update || handle_error 1 "Failed to update apt repositories before installing Mesa packages"
 
 packages=(
     libgl1
@@ -40,13 +37,4 @@ packages=(
     x11-xserver-utils
 )
 
-for pkg in "${packages[@]}"; do
-    candidate=$(apt-cache policy "${pkg}" | grep Candidate | awk '{print $2}')
-    installed=$(dpkg-query -W -f='${Version}' "${pkg}" 2>/dev/null || echo "none")
-
-    log info "Package: ${pkg}"
-    log info "    Installed: ${installed}"
-    log info "    Candidate: ${candidate}"
-done
-
-install_pkgs "${packages[@]}"
+install_pkgs "${packages[@]}" || handle_error 1 "Failed to install Mesa packages"

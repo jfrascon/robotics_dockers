@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -o pipefail
 
 log() {
     local type="${1:-info}"
@@ -9,6 +9,14 @@ log() {
         "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
         "${type}" \
         "${message}"
+}
+
+handle_error() {
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
+
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
 }
 
 # ---------------------------------------------------------------------------
@@ -41,8 +49,7 @@ log() {
 # ---------------------------------------------------------------------------
 
 if ! command -v xauth &>/dev/null; then
-    log error "xauth is not installed. Please install it before running this script."
-    exit 1
+    handle_error 1 "xauth is not installed. Please install it before running this script."
 fi
 
 # ---------------------------------------------------------------------------
@@ -54,7 +61,8 @@ package="xwayland"
 if dpkg -s "${package}" &>/dev/null; then
     log info "Package '${package}' already installed. Skipping."
 elif apt-cache policy "${package}" 2>/dev/null | grep --quiet 'Candidate:'; then
-    sudo apt-get install --yes --no-install-recommends "${package}"
+    sudo apt-get install --yes --no-install-recommends "${package}" ||
+        handle_error 1 "Failed to install package '${package}'"
 else
     log warning "Package '${package}' is missing in apt sources. Skipping."
 fi
@@ -68,23 +76,45 @@ qualified_script="/usr/local/bin/${script}"
 
 log info "Installing script '${qualified_script}'"
 
-sudo tee "${qualified_script}" >/dev/null <<'EOF'
+if ! sudo tee "${qualified_script}" >/dev/null <<'EOF'; then
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -o pipefail
+
+log() {
+    local type="${1:-info}"
+    local message="${2:-}"
+    printf '[%s] [%s] %s\n' \
+        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
+        "${type}" \
+        "${message}"
+}
+
+handle_error() {
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
+
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
+}
+
+[ -z "${XDG_RUNTIME_DIR:-}" ] && handle_error 1 "XDG_RUNTIME_DIR is not set"
 
 xauth_file="${XDG_RUNTIME_DIR}/cookies.xauth"
 xauth_log_file="${XDG_RUNTIME_DIR}/xauth_cookies.log"
 
 set_empty_xauth_file() {
-    touch "${xauth_file}"
-    chmod a+r "${xauth_file}"
+    touch "${xauth_file}" || handle_error 1 "Failed to create '${xauth_file}'"
+    chmod a+r "${xauth_file}" || handle_error 1 "Failed to make '${xauth_file}' readable"
 }
 
 # Remove any existing X11 cookie file to ensure a clean state.
-[ -e "${xauth_file}" ] && rm -f "${xauth_file}"
+if [ -e "${xauth_file}" ]; then
+    rm -f "${xauth_file}" || handle_error 1 "Failed to remove existing '${xauth_file}'"
+fi
 
-echo "Generating cookies at '$(date)' for DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset}" > "${xauth_log_file}"
+echo "Generating cookies at '$(date)' for DISPLAY=${DISPLAY:-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-unset}" > "${xauth_log_file}" || \
+    handle_error 1 "Failed to write '${xauth_log_file}'"
 
 # Under Wayland, X11 cookies are not used. If DISPLAY is unset, no graphical
 # session is available. In both cases create an empty file for compatibility.
@@ -94,8 +124,15 @@ if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -z "${DISPLAY:-}" ]; then
 fi
 
 # Generate cookies for the current display.
-echo "Processing DISPLAY=${DISPLAY}" >> "${xauth_log_file}"
-xauth_list="$(xauth nlist "${DISPLAY}" | sed -e 's/^..../ffff/')"
+echo "Processing DISPLAY=${DISPLAY}" >> "${xauth_log_file}" || \
+    handle_error 1 "Failed to write '${xauth_log_file}'"
+
+if ! xauth_list="$(xauth nlist "${DISPLAY}" 2>/dev/null | sed -e 's/^..../ffff/')"; then
+    echo "No X11 cookies found for DISPLAY=${DISPLAY}" >> "${xauth_log_file}" || \
+        handle_error 1 "Failed to write '${xauth_log_file}'"
+    set_empty_xauth_file
+    exit 0
+fi
 
 if [ -n "${xauth_list}" ]; then
     echo "${xauth_list}" | xauth -f "${xauth_file}" nmerge - 2>/dev/null || true
@@ -103,14 +140,16 @@ fi
 
 if [ -s "${xauth_file}" ]; then
     # Ensure the cookie file is readable by Docker containers.
-    chmod a+r "${xauth_file}"
+    chmod a+r "${xauth_file}" || handle_error 1 "Failed to make '${xauth_file}' readable"
 else
     # No X11 cookies found; create an empty file to avoid mount errors.
     set_empty_xauth_file
 fi
 EOF
+    handle_error 1 "Failed to write '${qualified_script}'"
+fi
 
-sudo chmod a+x "${qualified_script}"
+sudo chmod a+x "${qualified_script}" || handle_error 1 "Failed to make '${qualified_script}' executable"
 
 # ---------------------------------------------------------------------------
 # Install the systemd user service
@@ -122,9 +161,9 @@ service_file="${systemd_user_dir}/${service_name}.service"
 
 log info "Installing systemd user service '${service_file}'"
 
-mkdir -p "${systemd_user_dir}"
+mkdir -p "${systemd_user_dir}" || handle_error 1 "Failed to create '${systemd_user_dir}'"
 
-cat >"${service_file}" <<EOF
+if ! cat >"${service_file}" <<EOF; then
 [Unit]
 Description=Generate XAuth cookies for Docker GUI access
 Documentation=https://wiki.archlinux.org/title/Docker#Run_graphical_programs_inside_a_container
@@ -140,11 +179,13 @@ ExecStart=${qualified_script}
 [Install]
 WantedBy=graphical-session.target
 EOF
+    handle_error 1 "Failed to write '${service_file}'"
+fi
 
-chmod 644 "${service_file}"
+chmod 644 "${service_file}" || handle_error 1 "Failed to set permissions on '${service_file}'"
 
-systemctl --user daemon-reload
-systemctl --user enable "${service_name}.service"
+systemctl --user daemon-reload || handle_error 1 "Failed to reload user systemd daemon"
+systemctl --user enable "${service_name}.service" || handle_error 1 "Failed to enable '${service_name}.service'"
 
 log info "Service '${service_name}' enabled. It will run automatically on every graphical session start."
 log info "Useful commands:"
@@ -157,6 +198,6 @@ log info "  journalctl --user -u     ${service_name}   # view logs"
 # ---------------------------------------------------------------------------
 
 log info "Executing '${qualified_script}'"
-"${qualified_script}"
+"${qualified_script}" || handle_error 1 "Failed to execute '${qualified_script}'"
 
 log info "Done."

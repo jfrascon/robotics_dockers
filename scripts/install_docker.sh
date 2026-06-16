@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -o pipefail
 
 log() {
     local type="${1:-info}"
@@ -11,62 +11,75 @@ log() {
         "${message}"
 }
 
+handle_error() {
+    local exit_code="${1:-1}"
+    local error_message="${2:-Unknown error}"
+
+    log error "${error_message} (exit code: ${exit_code})"
+    exit "${exit_code}"
+}
+
 log info "Installing Docker"
 
-sudo apt-get update --yes
-sudo apt-get upgrade --yes
-sudo apt-get install --yes --quiet --no-install-recommends curl gpg
+sudo apt-get update --yes || handle_error 1 "Failed to update apt repositories"
+sudo apt-get upgrade --yes || handle_error 1 "Failed to upgrade installed apt packages"
+sudo apt-get install --yes --quiet --no-install-recommends curl gpg ||
+    handle_error 1 "Failed to install Docker installation dependencies"
 
 gpg_dir="/etc/apt/keyrings"
 gpg_file="${gpg_dir}/docker.gpg"
 
-sudo mkdir -p "${gpg_dir}"
+sudo mkdir -p "${gpg_dir}" || handle_error 1 "Failed to create '${gpg_dir}'"
 
 # Download and install the Docker GPG key
 log info "Installing Docker GPG key to '${gpg_file}'"
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg |
     gpg --dearmor --output - |
-    sudo tee "${gpg_file}" >/dev/null
+    sudo tee "${gpg_file}" >/dev/null || handle_error 1 "Failed to install Docker GPG key"
 
 # Set correct permissions
-sudo chmod 644 "${gpg_file}"
-sudo chown root:root "${gpg_file}"
+sudo chmod 644 "${gpg_file}" || handle_error 1 "Failed to set permissions on '${gpg_file}'"
+sudo chown root:root "${gpg_file}" || handle_error 1 "Failed to set owner on '${gpg_file}'"
 
 # Get relevant environment variables, including VERSION_CODENAME.
-. /etc/os-release
+. /etc/os-release || handle_error 1 "Failed to read '/etc/os-release'"
 
 url="https://download.docker.com/linux/ubuntu"
 deb_pattern="^deb.*${url}[[:space:]]+${VERSION_CODENAME}[[:space:]]+stable"
-deb_line="deb [arch=$(dpkg --print-architecture) signed-by=${gpg_file}] ${url} ${VERSION_CODENAME} stable"
+arch="$(dpkg --print-architecture)" || handle_error 1 "Failed to detect Debian architecture"
+deb_line="deb [arch=${arch} signed-by=${gpg_file}] ${url} ${VERSION_CODENAME} stable"
 list_file="/etc/apt/sources.list.d/docker.list"
 
 # If the Docker deb line exists in /etc/apt/sources.list (the main file), remove it from there.
 # Lines in sources.list.d/ files are handled by overwriting docker.list below.
 if grep -qE "${deb_pattern}" /etc/apt/sources.list 2>/dev/null; then
     log info "Docker deb line found in '/etc/apt/sources.list', removing it"
-    sudo sed -i -E "\#${deb_pattern}#d" /etc/apt/sources.list
+    sudo sed -i -E "\#${deb_pattern}#d" /etc/apt/sources.list ||
+        handle_error 1 "Failed to remove Docker deb line from '/etc/apt/sources.list'"
 fi
 
 # Write (or overwrite) the canonical docker.list entry.
 log info "Writing Docker deb line to '${list_file}'"
-echo "${deb_line}" | sudo tee "${list_file}" >/dev/null
+echo "${deb_line}" | sudo tee "${list_file}" >/dev/null ||
+    handle_error 1 "Failed to write Docker apt source to '${list_file}'"
 
 # Install Docker packages
 log info "Installing Docker packages"
-sudo apt-get update --yes
-sudo apt-get install --yes --quiet --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt-get update --yes || handle_error 1 "Failed to update apt repositories after adding Docker source"
+sudo apt-get install --yes --quiet --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin ||
+    handle_error 1 "Failed to install Docker packages"
 
 # Manage Docker group and permissions
 if ! getent group docker >/dev/null; then
-    sudo groupadd docker
+    sudo groupadd docker || handle_error 1 "Failed to create docker group"
 fi
 
 # Add the current user to the docker group to allow running Docker without sudo.
 # This change will take effect after logging out and logging back in.
-sudo usermod -aG docker "${USER}"
+sudo usermod -aG docker "${USER}" || handle_error 1 "Failed to add user '${USER}' to docker group"
 
 # Clean up unused packages
-sudo apt-get autoremove --yes
+sudo apt-get autoremove --yes || handle_error 1 "Failed to autoremove unused apt packages"
 
 # On Debian and Ubuntu, the Docker service is configured to start on boot by default.
 # To automatically start Docker and Containerd on boot for other distros, use the commands below:
@@ -78,14 +91,14 @@ sudo apt-get autoremove --yes
 
 log info "Verifying Docker CLI"
 if ! docker --version; then
-    log error "Docker CLI not available"
+    handle_error 1 "Docker CLI not available"
 fi
 
 log info "Running test container"
 if sudo docker run --rm hello-world; then
     log info "Docker was installed and is working correctly"
 else
-    log error "Docker run failed. Try logging out and logging in again, or restarting your computer"
+    handle_error 1 "Docker run failed. Try logging out and logging in again, or restarting your computer"
 fi
 
 # Configuration advice
