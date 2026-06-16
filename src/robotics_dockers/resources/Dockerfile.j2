@@ -86,8 +86,9 @@ COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
 RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
     bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
 
-# It uses --mount=type=bind for both the main context and the pkgs context (rosdep packages dir).
-RUN --mount=type=bind,source=.,target=/tmp/context --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
+# It uses --mount=type=bind for both the resources context and the pkgs context (rosdep packages dir).
+RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
+    --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
 log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
 handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
 
