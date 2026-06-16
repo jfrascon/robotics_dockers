@@ -51,15 +51,18 @@ services:
       # | Project mappings |
       # +------------------+
       # - ${WORKSPACE:?Set WORKSPACE to the path of your workspace on the host}:{{ img_workspace_dir }}
+
       # +------------------+
       # | Dataset mappings |
       # +------------------+
       #- ~/datasets:{{ img_datasets_dir }}
+
       # +-------------------+
       # | Graphics mappings |
       # +-------------------+
       - /tmp/.cookies.xauth:/tmp/.cookies.xauth:rw
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
       # +-----------------+
       # | Custom mappings |
       # +-----------------+
@@ -67,24 +70,48 @@ services:
       # ...
       # Files
       # ...
+
+      # +----------------------+
+      # | SSH agent forwarding |
+      # +----------------------+
+      # Do not mount ${HOME}/.ssh into the container. That exposes private
+      # key files to every process inside the container.
+      #
+      # Instead, mount only the host ssh-agent Unix socket. The container can
+      # ask the agent to sign SSH challenges, but it does not receive the
+      # private key files.
+      #
+      # If you enable this volume, also set this environment variable:
+      #
+      #   SSH_AUTH_SOCK: /ssh-agent
+      #
+      # The :? syntax makes docker compose fail early if SSH_AUTH_SOCK is not
+      # set in the host shell.
+      #
+      #   - ${SSH_AUTH_SOCK:?SSH_AUTH_SOCK must be set}:/ssh-agent
+
+      # +-----------------+
+      # | Device mappings |
+      # +-----------------+
+      - /dev/input:/dev/input
+
     devices:
       # - /dev/ttyACM0:/dev/ttyACM0
       - /dev/bus/usb:/dev/bus/usb
       - /dev/dri:/dev/dri
+
     #device_cgroup_rules:
     #  - "c 13:* rmw" # input
     #  - "c 166:* rmw" # ttyACM
     #  - "c 180:* rmw" # usb
     #  - "c 189:* rmw" # usb_device
+
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - TERM=${TERM:-xterm-256color}
       - XAUTHORITY=/tmp/.cookies.xauth
       {% if use_host_nvidia_driver %}
-      # NVIDIA_VISIBLE_DEVICES and NVIDIA_DRIVER_CAPABILITIES are still needed
-      # alongside deploy.resources to control which GPUs and driver features
-      # are exposed inside the container.
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       {% endif %}
@@ -100,18 +127,6 @@ services:
       #        HOST_UID=$(id -u) HOST_UPGID=$(id -g) docker compose up
       - HOST_UID=${HOST_UID?HOST_UID must be set. Run: export HOST_UID=$(id -u)}
       - HOST_UPGID=${HOST_UPGID?HOST_UPGID must be set. Run: export HOST_UPGID=$(id -g)}
-
-    # init: true enables a tiny init (tini) as PID 1 inside the container.
-    # It forwards signals (SIGTERM/SIGINT) to the app and reaps zombie
-    # processes from child workers, preventing dirty shutdowns and resource
-    # leaks.
-    #
-    # It is not a supervisor: it will not restart your app. It only fixes
-    # PID-1 semantics.
-    #
-    # Recommended for services that spawn subprocesses or use launchers/daemons,
-    # for example ros2 launch, drivers, simulators and agent tooling.
-    init: true
 
     # Add the GID of the render device group so that all container processes
     # (including those opened by VS Code) can access /dev/dri/renderD* for
@@ -132,3 +147,15 @@ services:
     # not enough: processes started by VS Code do not inherit late group changes.
     group_add:
       - "${RENDER_GID?RENDER_GID must be set. Run: stat -c %g /dev/dri/renderD128}"
+
+    # init: true enables a tiny init (tini) as PID 1 inside the container.
+    # It forwards signals (SIGTERM/SIGINT) to the app and reaps zombie
+    # processes from child workers, preventing dirty shutdowns and resource
+    # leaks.
+    #
+    # It is not a supervisor: it will not restart your app. It only fixes
+    # PID-1 semantics.
+    #
+    # Recommended for services that spawn subprocesses or use launchers/daemons,
+    # for example ros2 launch, drivers, simulators and agent tooling.
+    init: true
