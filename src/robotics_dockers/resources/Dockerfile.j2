@@ -37,6 +37,9 @@ required_context_paths=(
     .resources/bashrc.user
     .resources/install_pkgs
     .resources/install_base_system.sh
+{% if not use_host_nvidia_driver %}
+    .resources/install_mesa_packages.sh
+{% endif %}
     .resources/install_ros.sh
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
@@ -92,6 +95,11 @@ bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAG
 image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}")"
 [ -z "${image_main_user_entry}" ] && handle_error 1 "User '${IMAGE_MAIN_USER}' not found"
 
+{% if not use_host_nvidia_driver %}
+bash /tmp/context/.resources/install_mesa_packages.sh || \
+    handle_error 1 "Failed to run 'install_mesa_packages.sh'"
+
+{% endif %}
 bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}" || \
     handle_error 1 "Failed to run 'install_ros.sh'"
 

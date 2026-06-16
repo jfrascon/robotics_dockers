@@ -27,7 +27,6 @@ Generate ready-to-use Docker build contexts for ROS 2 development images.
     - [rosbuild: colcon build wrapper](#rosbuild-colcon-build-wrapper)
     - [Running the container](#running-the-container)
     - [CycloneDDS host tuning](#cyclonedds-host-tuning)
-    - [Examples](#examples)
 4. [Launching graphical user interfaces (GUIs) in Docker containers](#launching-graphical-user-interfaces-guis-in-docker-containers)
 
 ---
@@ -321,8 +320,9 @@ apt-get update && apt-get install -y clang-18
 
 ```
 
-> If you generated without `--nvidia`, this file already
-> contains the default Mesa packages script. Edit it as needed.
+> If you generated without `--nvidia`, the Dockerfile runs the generated
+> `.resources/install_mesa_packages.sh` script before ROS is installed.
+> This file remains available for your own project-specific apt packages.
 
 #### `extra.d/requirements.txt`
 
@@ -555,14 +555,6 @@ sysctl net.ipv4.ipfrag_high_thresh
 The settings persist across reboots because `sysctl.d` files are loaded at startup. Without them, CycloneDDS will work for small messages but will fail or lose data when messages exceed the default 208 KiB receive buffer.
 
 > **Note:** If you configure CycloneDDS to use a large receive buffer in its XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have not applied these host settings, the middleware will log an error at startup and fall back to the system default, often causing silent data loss.
-
----
-
-### Examples
-
-The package includes reference scripts for installing specific Mesa driver variants (default, Kisak PPA, Oibaf PPA, locked versions). These are not used automatically; copy the relevant parts into your `extra.d/apt_packages.sh`.
-
----
 
 ## Launching graphical user interfaces (GUIs) in Docker containers
 

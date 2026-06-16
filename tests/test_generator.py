@@ -62,6 +62,47 @@ def test_generate_docker_context_uses_rosdep_skip_keys_file(tmp_path: Path) -> N
     assert 'skip_rosdep_keys /tmp/context/.resources/rosdep_skip_keys.txt' in dockerfile
 
 
+def test_generate_docker_context_keeps_apt_packages_template_comments(tmp_path: Path) -> None:
+    generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    apt_packages = tmp_path.joinpath('.resources', 'extra.d', 'apt_packages.sh').read_text()
+    assert 'The command `install_pkgs` is available in this script.' in apt_packages
+
+
+def test_generate_docker_context_installs_mesa_only_without_nvidia(tmp_path: Path) -> None:
+    no_nvidia_dir = tmp_path / 'no_nvidia'
+    nvidia_dir = tmp_path / 'nvidia'
+
+    generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer',
+            ros_distro='jazzy',
+            img_id='local/ros-test:latest',
+            output_dir=no_nvidia_dir,
+            use_host_nvidia_driver=False,
+        )
+    )
+    generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer',
+            ros_distro='jazzy',
+            img_id='local/ros-test:latest',
+            output_dir=nvidia_dir,
+            use_host_nvidia_driver=True,
+        )
+    )
+
+    no_nvidia_dockerfile = no_nvidia_dir.joinpath('Dockerfile').read_text()
+    nvidia_dockerfile = nvidia_dir.joinpath('Dockerfile').read_text()
+
+    assert 'install_mesa_packages.sh' in no_nvidia_dockerfile
+    assert 'install_mesa_packages.sh' not in nvidia_dockerfile
+
+
 def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path: Path) -> None:
     generate_docker_context(
         DockerContextConfig(

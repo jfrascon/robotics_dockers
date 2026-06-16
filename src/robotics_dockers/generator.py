@@ -96,11 +96,10 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             'entrypoint.d/98-nvidia-gpu-driver-check.sh',
             True,
         ]
+    else:
+        items_to_install['.resources/install_mesa_packages.sh'] = ['install_mesa_packages.sh', True]
 
     items_to_install['.resources/bashrc.user'] = ['bashrc.user', True]
-
-    if not config.use_host_nvidia_driver:
-        items_to_install['.resources/extra.d/apt_packages.sh'] = ['examples/install_default_mesa_packages.sh', True]
 
     return items_to_install
 

@@ -12,7 +12,7 @@
 # If none of the requested packages can be installed, it returns an error.
 #
 # Examples:
-#   install_pkgs "ros-${ROS_DISTRO}-plotjuggler-ros"
+#   install_pkgs libopencv-dev "ros-${ROS_DISTRO}-plotjuggler-ros"
 #
 #   url="https://packages.osrfoundation.org"
 #   remote_gpg_key="${url}/gazebo.gpg"
@@ -28,3 +28,6 @@
 #   apt-get update --quiet --quiet
 #
 #   install_pkgs "ros-${ROS_DISTRO}-ros-gz"
+
+#   apt-get update
+#   apt-get install -y --no-install-recommends  ros-jazzy-moveit
