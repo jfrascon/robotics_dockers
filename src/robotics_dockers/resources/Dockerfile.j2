@@ -90,9 +90,6 @@ image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}")"
 bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}" || \
     handle_error 1 "Failed to run 'install_ros.sh'"
 
-bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
-    handle_error 1 "Failed to run 'install_extra_pkgs.sh'"
-
 # No ROS_DISTRO found at this point, exit with an error.
 # If more than one ROS_DISTRO is found, exit with an error.
 # If the found ROS_DISTRO does not match the expected ROS_DISTRO, exit with an error.
@@ -119,6 +116,9 @@ rosdep_ignored_keys=(
 
 bash /usr/local/bin/skip_rosdep_keys "${rosdep_ignored_keys[@]}" || \
     handle_error 1 "Failed to run 'skip_rosdep_keys'"
+
+bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
+    handle_error 1 "Failed to run 'install_extra_pkgs.sh'"
 
 bash /tmp/context/.resources/rosdep_init_update_install.sh \
     "${ROS_DISTRO}" "${IMAGE_MAIN_USER}" --pkgs-dir /tmp/pkgs_dir || \
