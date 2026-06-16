@@ -28,6 +28,16 @@
 #   apt-get update --quiet --quiet
 #
 #   install_pkgs "ros-${ROS_DISTRO}-ros-gz"
-
-#   apt-get update
-#   apt-get install -y --no-install-recommends  ros-jazzy-moveit
+#
+# Prefer rosdep for ROS packages that are real dependencies of the project.
+# This script is intended for general tools and repositories, such as PlotJuggler
+# or Gazebo, that are useful in the image but are not necessarily declared by a
+# package.xml in your workspace.
+#
+# For example, if a project package needs twist_mux, prefer declaring it in that
+# package.xml and building the image with build.py --pkgs-dir <workspace-src>.
+# rosdep can then install the correct apt package from the declared dependency.
+#
+# This requires the project packages and their dependencies to be known before
+# the image is built. In real projects that is not always true, so regenerating
+# the image as new packages and dependencies appear is expected.

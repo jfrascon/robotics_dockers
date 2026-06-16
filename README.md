@@ -301,14 +301,13 @@ The `.resources/extra.d/` folder contains three files you can edit before buildi
 
 #### `extra.d/apt_packages.sh`
 
-Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here:
+Shell script executed as root after ROS is installed. Add general apt packages, third-party repositories or any other system-level setup here:
 
 The helper `install_pkgs` is available in this script. It installs packages that are resolvable, skips packages that are already installed, warns about packages that are not installable, and fails only when none of the requested packages can be installed.
 
 ```bash
 #!/usr/bin/env bash
-apt-get update
-apt-get install -y --no-install-recommends libopencv-dev ros-jazzy-moveit
+install_pkgs libopencv-dev ffmpeg
 
 # Adding a third-party repository:
 install -d -m 0755 /etc/apt/keyrings
@@ -319,6 +318,8 @@ echo "deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] http://apt.llvm.org/no
 apt-get update && apt-get install -y clang-18
 
 ```
+
+Prefer rosdep for ROS packages that are actual dependencies of your project. For example, if one of your packages needs `twist_mux`, declare that dependency in the package `package.xml` and build the image with `python3 build.py --pkgs-dir /path/to/your/workspace/src`. That lets rosdep resolve and install the matching `ros-${ROS_DISTRO}-*` package from the project metadata. This requires the packages and their dependencies to exist before the image is built, so it is normal to regenerate the image as the project grows.
 
 > If you generated without `--nvidia`, the Dockerfile runs the generated
 > `.resources/install_mesa_packages.sh` script before ROS is installed.
