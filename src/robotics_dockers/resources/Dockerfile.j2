@@ -55,9 +55,6 @@ for relative_path in "${required_context_paths[@]}"; do
     if [ ! -f "${context_dir}/${relative_path}" ]; then
         handle_error 1 "File not found: ${context_dir}/${relative_path}"
     fi
-    if [ ! -x "${context_dir}/${relative_path}" ]; then
-        handle_error 1 "File not executable: ${context_dir}/${relative_path}"
-    fi
 done
 EOF
 
