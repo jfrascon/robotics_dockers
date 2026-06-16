@@ -72,6 +72,10 @@ APT::Install-Recommends "false";
 APT::Install-Suggests "false";
 EOF
 
+# The next three RUN instructions intentionally mount .resources instead of copying these scripts into the image.
+# They are separate steps so the base system, ROS installation, and user-defined extra packages remain independent.
+# This keeps each build step easier to read, improves cache reuse when only one group changes, and avoids storing
+# build-only helper scripts in image layers.
 RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
     bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}"
 
