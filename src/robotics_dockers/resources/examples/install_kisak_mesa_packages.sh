@@ -1,56 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-# Install only resolvable Debian packages.
-install_pkgs() {
-    local pkgs=("$@")
-    local valid=()
-    local bad=()
-    local already=()
-    local pkg
-    local verb
-
-    [ ${#pkgs[@]} -eq 0 ] && return 0
-
-    for pkg in "${pkgs[@]}"; do
-        # If it is already installed, skip it.
-        if dpkg-query -W -f='${Status}\n' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
-            log info "Checking package '${pkg}': already installed"
-            already+=("${pkg}")
-            continue
-        fi
-
-        if apt-get --simulate --option=Dpkg::Use-Pty=0 --no-install-recommends install "${pkg}" >/dev/null 2>&1; then
-            valid+=("${pkg}")
-            verb="installable"
-        else
-            bad+=("${pkg}")
-            verb="not installable"
-        fi
-
-        log info "Checking package '${pkg}': ${verb}"
-    done
-
-    # Every package is already installed, nothing to do.
-    [ ${#already[@]} -eq ${#pkgs[@]} ] && return 0
-
-    # Warn about packages that cannot be installed.
-    [ ${#bad[@]} -gt 0 ] && log warning "Packages not installable: ${bad[*]}"
-
-    # No valid packages to install.
-    if [ ${#valid[@]} -eq 0 ]; then
-        log warning "No installable packages"
-        return 1
-    fi
-
-    apt-get install --yes --no-install-recommends "${valid[@]}" || {
-        log error "Installation failed: ${valid[*]}"
-        return 1
-    }
-
-    return 0
-}
-
 log() {
     local type="${1:-info}"
     local message="${2:-}"
@@ -94,7 +44,4 @@ packages=(
 )
 
 log info "Installing Mesa packages from Kisak PPA"
-install_pkgs "${packages[@]}" || {
-    log info "Installation of Mesa packages failed"
-    exit 1
-}
+install_pkgs "${packages[@]}" || handle_error 1 "Installation of Mesa packages failed"

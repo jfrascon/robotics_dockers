@@ -35,6 +35,7 @@ handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
 context_dir="/tmp/context"
 required_context_paths=(
     .resources/bashrc.user
+    .resources/install_pkgs
     .resources/install_base_system.sh
     .resources/install_ros.sh
     .resources/install_extra_pkgs.sh
@@ -80,6 +81,9 @@ RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
     --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
 log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
 handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
+
+install --owner root --group root --mode 775 /tmp/context/.resources/install_pkgs /usr/local/bin/install_pkgs || \
+    handle_error 1 "Failed to install 'install_pkgs'"
 
 bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
     handle_error 1 "Failed to run 'install_base_system.sh'"

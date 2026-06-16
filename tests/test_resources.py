@@ -13,6 +13,7 @@ BASH_RESOURCE_FILES = (
     'entrypoint.d/99-uid-gid-adapt.sh',
     'install_base_system.sh',
     'install_extra_pkgs.sh',
+    'install_pkgs',
     'install_ros2.sh',
     'ros2build',
     'rosdep_init_update_install.sh',

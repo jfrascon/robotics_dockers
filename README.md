@@ -304,6 +304,8 @@ The `.resources/extra.d/` folder contains three files you can edit before buildi
 
 Shell script executed as root after ROS is installed. Add apt packages, third-party repositories or any other system-level setup here:
 
+The helper `install_pkgs` is available in this script. It installs packages that are resolvable, skips packages that are already installed, warns about packages that are not installable, and fails only when none of the requested packages can be installed.
+
 ```bash
 #!/usr/bin/env bash
 apt-get update

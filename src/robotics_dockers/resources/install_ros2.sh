@@ -8,62 +8,6 @@
 # Usage: install_ros2.sh <ros_distro>
 #   ros_distro: e.g. humble, jazzy
 
-# --------------------------------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------------------------------
-
-# install_pkgs <pkg>...
-#
-# Installs only the apt packages that are not yet installed and are resolvable.
-# Already-installed packages are skipped. Unresolvable packages are warned about but do not abort.
-install_pkgs() {
-    local pkgs=("$@")
-    local valid=()
-    local bad=()
-    local already=()
-    local pkg
-    local verb
-
-    [ ${#pkgs[@]} -eq 0 ] && return 0
-
-    for pkg in "${pkgs[@]}"; do
-        if dpkg-query -W -f='${Status}\n' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
-            log info "Checking package '${pkg}': already installed"
-            already+=("${pkg}")
-            continue
-        fi
-
-        if apt-get --simulate --option=Dpkg::Use-Pty=0 --no-install-recommends install "${pkg}" >/dev/null 2>&1; then
-            valid+=("${pkg}")
-            verb="installable"
-        else
-            bad+=("${pkg}")
-            verb="not installable"
-        fi
-
-        log info "Checking package '${pkg}': ${verb}"
-    done
-
-    if [ ${#already[@]} -eq ${#pkgs[@]} ]; then
-        log info "All requested packages are already installed"
-        return 0
-    fi
-
-    [ ${#bad[@]} -gt 0 ] && log warning "Packages not installable: ${bad[*]}"
-
-    if [ ${#valid[@]} -eq 0 ]; then
-        log warning "No installable packages"
-        return 1
-    fi
-
-    apt-get install --yes --no-install-recommends "${valid[@]}" || {
-        log error "Installation failed: ${valid[*]}"
-        return 1
-    }
-
-    return 0
-}
-
 log() {
     local type="${1:-info}"
     local message="${2:-}"
@@ -194,10 +138,11 @@ packages=(
 sanitize "${version_codename}"
 
 apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
-install_pkgs apt-utils || exit 1
-install_pkgs python3-software-properties software-properties-common || exit 1
+install_pkgs apt-utils || handle_error 1 "Failed to install apt-utils"
+install_pkgs python3-software-properties software-properties-common ||
+    handle_error 1 "Failed to install add-apt-repository dependencies"
 add-apt-repository --yes universe || handle_error 1 "Adding universe repository failed"
-install_pkgs curl gpg || exit 1
+install_pkgs curl gpg || handle_error 1 "Failed to install ROS repository key dependencies"
 
 ros_list_file=""
 ros_apt_source_package="ros2-apt-source"
@@ -231,7 +176,7 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
 fi
 
 apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
-install_pkgs "${packages[@]}" || exit 1
+install_pkgs "${packages[@]}" || handle_error 1 "Failed to install ROS 2 packages"
 
 # If we created a temporary list file, remove it and its GPG key now that ros2-apt-source
 # manages repository and key going forward.

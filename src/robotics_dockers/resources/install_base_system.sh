@@ -1,55 +1,5 @@
 #!/usr/bin/env bash
 
-# Install only resolvable Debian packages.
-install_pkgs() {
-    local pkgs=("$@")
-    local valid=()
-    local bad=()
-    local already=()
-    local pkg
-    local verb
-
-    [ ${#pkgs[@]} -eq 0 ] && return 0
-
-    for pkg in "${pkgs[@]}"; do
-        # If it is already installed, skip it.
-        if dpkg-query -W -f='${Status}\n' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
-            log info "Checking package '${pkg}': already installed"
-            already+=("${pkg}")
-            continue
-        fi
-
-        if apt-get --simulate --option=Dpkg::Use-Pty=0 --no-install-recommends install "${pkg}" >/dev/null 2>&1; then
-            valid+=("${pkg}")
-            verb="installable"
-        else
-            bad+=("${pkg}")
-            verb="not installable"
-        fi
-
-        log info "Checking package '${pkg}': ${verb}"
-    done
-
-    # Every package is already installed, nothing to do.
-    [ ${#already[@]} -eq ${#pkgs[@]} ] && return 0
-
-    # Warn about packages that cannot be installed.
-    [ ${#bad[@]} -gt 0 ] && log warning "Packages not installable: ${bad[*]}"
-
-    # No valid packages to install.
-    if [ ${#valid[@]} -eq 0 ]; then
-        log warning "No installable packages"
-        return 1
-    fi
-
-    apt-get install --yes --no-install-recommends "${valid[@]}" || {
-        log error "Installation failed: ${valid[*]}"
-        return 1
-    }
-
-    return 0
-}
-
 log() {
     local type="${1:-info}"
     local message="${2:-}"
@@ -112,10 +62,11 @@ apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
 
 # Install the apt-utils package first, to avoid warnings when installing packages if this package
 # is not installed previously.
-install_pkgs apt-utils || exit 1
+install_pkgs apt-utils || handle_error 1 "Failed to install apt-utils"
 
 # Install the package that allow us to add repositories.
-install_pkgs python3-software-properties software-properties-common || exit 1
+install_pkgs python3-software-properties software-properties-common ||
+    handle_error 1 "Failed to install add-apt-repository dependencies"
 
 # Now add-apt-repository is available, and we can add the universe repository that contains many
 # of the packages we need. Next, the index is updated, and the system is upgraded to ensure all packages are up to date.
@@ -200,7 +151,7 @@ packages=(
     wget
 )
 
-install_pkgs "${packages[@]}" || exit 1
+install_pkgs "${packages[@]}" || handle_error 1 "Failed to install base system packages"
 
 update-alternatives --install /usr/bin/python python /usr/bin/python3 100
 
@@ -217,7 +168,7 @@ echo "Etc/UTC" >/etc/timezone
 ln --symbolic --force "/usr/share/zoneinfo/Etc/UTC" /etc/localtime
 
 if ! dpkg --status tzdata >/dev/null 2>&1; then
-    TZ=Etc/UTC DEBIAN_FRONTEND=noninteractive install_pkgs tzdata || exit 1
+    TZ=Etc/UTC DEBIAN_FRONTEND=noninteractive install_pkgs tzdata || handle_error 1 "Failed to install tzdata"
 fi
 
 dpkg-reconfigure --frontend noninteractive tzdata
@@ -225,7 +176,7 @@ export TZ=Etc/UTC # In case any command in this script after this line needs it.
 
 log info "Configuring locales to en_US.UTF-8"
 # Install the locales package to support UTF-8 encoding.
-install_pkgs locales || exit 1
+install_pkgs locales || handle_error 1 "Failed to install locales"
 
 tmp="$(mktemp)"
 printf 'en_US.UTF-8 UTF-8\n' >"${tmp}"

@@ -48,7 +48,4 @@ for pkg in "${packages[@]}"; do
 done
 
 log info "Installing Mesa packages from Oibaf PPA"
-install_pkgs "${packages[@]}" || {
-    log info "Installation of Mesa packages failed"
-    exit 1
-}
+install_pkgs "${packages[@]}" || handle_error 1 "Installation of Mesa packages failed"
