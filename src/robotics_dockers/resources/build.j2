@@ -252,7 +252,9 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
     finally:
+{% if rosdep_packages_dir_mode == 'cli' %}
         # Clean up the temporary empty pkgs directory if it was created.
         if not args.pkgs_dir and pkgs_dir.exists():
             shutil.rmtree(pkgs_dir, ignore_errors=True)
+{% endif %}
         sys.exit(exit_code)

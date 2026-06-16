@@ -121,6 +121,7 @@ def test_generate_docker_context_can_use_fixed_rosdep_packages_dir(tmp_path: Pat
     assert 'configured_pkgs_dir' not in build_script
     assert 'is_absolute()' not in build_script
     assert 'pkgs_dir = context_dir.joinpath("../src").resolve()' in build_script
+    assert 'args.pkgs_dir' not in build_script
     assert (
         resolve_config(
             DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest', rosdep_packages_dir='../src')
@@ -145,6 +146,7 @@ def test_generate_docker_context_can_use_fixed_host_rosdep_packages_dir(tmp_path
     assert '"--pkgs-dir"' not in build_script
     assert 'configured_pkgs_dir' not in build_script
     assert f'pkgs_dir = Path("{fixed_pkgs_dir}").expanduser().resolve()' in build_script
+    assert 'args.pkgs_dir' not in build_script
     assert (
         resolve_config(
             DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest', rosdep_packages_dir=fixed_pkgs_dir)
@@ -166,6 +168,7 @@ def test_generate_docker_context_treats_user_relative_rosdep_packages_dir_as_hos
 
     build_script = result.context_dir.joinpath('build.py').read_text()
     assert 'pkgs_dir = Path("~/workspace/src").expanduser().resolve()' in build_script
+    assert 'args.pkgs_dir' not in build_script
     assert (
         resolve_config(
             DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest', rosdep_packages_dir='~/workspace/src')
