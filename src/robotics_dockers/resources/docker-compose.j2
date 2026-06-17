@@ -107,13 +107,13 @@ services:
     #  - "c 189:* rmw" # usb_device
 
     environment:
-      - DISPLAY=${DISPLAY}
-      - QT_X11_NO_MITSHM=1
-      - TERM=${TERM:-xterm-256color}
-      - XAUTHORITY=/tmp/.cookies.xauth
+      DISPLAY: "${DISPLAY}"
+      QT_X11_NO_MITSHM: "1"
+      TERM: "${TERM:-xterm-256color}"
+      XAUTHORITY: "/tmp/.cookies.xauth"
       {% if use_host_nvidia_driver %}
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "all"
       {% endif %}
 
       # Used by the entrypoint to remap the container user and then exec with gosu.
@@ -125,8 +125,8 @@ services:
       #        export HOST_UID=$(id -u) HOST_UPGID=$(id -g)
       #   3. Inline when running docker compose:
       #        HOST_UID=$(id -u) HOST_UPGID=$(id -g) docker compose up
-      - HOST_UID=${HOST_UID?HOST_UID must be set. Run: export HOST_UID=$(id -u)}
-      - HOST_UPGID=${HOST_UPGID?HOST_UPGID must be set. Run: export HOST_UPGID=$(id -g)}
+      HOST_UID: "${HOST_UID?HOST_UID must be set}"
+      HOST_UPGID: "${HOST_UPGID?HOST_UPGID must be set}"
 
     # Add the GID of the render device group so that all container processes
     # (including those opened by VS Code) can access /dev/dri/renderD* for
@@ -146,7 +146,7 @@ services:
     # This is required because modifying /etc/group at runtime (entrypoint) is
     # not enough: processes started by VS Code do not inherit late group changes.
     group_add:
-      - "${RENDER_GID?RENDER_GID must be set. Run: stat -c %g /dev/dri/renderD128}"
+      - "${RENDER_GID?RENDER_GID must be set}"
 
     # init: true enables a tiny init (tini) as PID 1 inside the container.
     # It forwards signals (SIGTERM/SIGINT) to the app and reaps zombie
