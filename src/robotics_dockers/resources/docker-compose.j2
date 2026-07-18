@@ -60,8 +60,21 @@ services:
       # +-------------------+
       # | Graphics mappings |
       # +-------------------+
-      - /tmp/.cookies.xauth:/tmp/.cookies.xauth:rw
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # The host-side installer generates the XWayland authentication file
+      # before this service is created:
+      #
+      #   scripts/install_docker_gui_support.sh
+      - type: bind
+        source: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}/docker-xwayland.xauth"
+        target: /tmp/docker-xwayland.xauth
+        read_only: true
+        bind:
+          create_host_path: false
+
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+        read_only: true
 
       # +-----------------+
       # | Custom mappings |
@@ -107,10 +120,16 @@ services:
     #  - "c 189:* rmw" # usb_device
 
     environment:
-      DISPLAY: "${DISPLAY}"
+      # Use the host XWayland display and the Xauthority file mounted above.
+      DISPLAY: "${DISPLAY:?DISPLAY must be set}"
+      XAUTHORITY: "/tmp/docker-xwayland.xauth"
+
+      # Force Qt applications such as RViz and Gazebo to use X11 through
+      # XWayland instead of attempting a native Wayland connection.
+      QT_QPA_PLATFORM: "xcb"
       QT_X11_NO_MITSHM: "1"
+
       TERM: "${TERM:-xterm-256color}"
-      XAUTHORITY: "/tmp/.cookies.xauth"
       {% if use_host_nvidia_driver %}
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"
