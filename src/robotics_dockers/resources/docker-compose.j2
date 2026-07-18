@@ -63,7 +63,7 @@ services:
       # The host-side installer generates the XWayland authentication file
       # before this service is created:
       #
-      #   scripts/install_docker_gui_support.sh
+      #   scripts/install-docker-gui-support.sh
       - type: bind
         source: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}/docker-xwayland.xauth"
         target: /tmp/docker-xwayland.xauth
