@@ -168,7 +168,6 @@ mv --verbose "${root_ros_home}/rosdep" "${target_user_ros_home}/rosdep"
 chown --recursive "${target_user_id}:${target_user_pri_group_id}" "${target_user_ros_home}"
 
 log info "Removing installation residues from apt cache"
-apt-get autoclean >/dev/null
 apt-get autoremove --purge -y >/dev/null
 apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* &>/dev/null

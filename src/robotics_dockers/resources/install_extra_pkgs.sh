@@ -71,7 +71,6 @@ if [ -f "${apt_script}" ]; then
     bash "${apt_script}" || handle_error 1 "apt_packages.sh failed"
 
     log info "Cleaning up apt cache"
-    apt-get autoclean
     apt-get autoremove --purge -y
     apt-get clean
     rm -rf /var/lib/apt/lists/* 1>/dev/null 2>&1

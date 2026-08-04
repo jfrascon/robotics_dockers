@@ -186,7 +186,6 @@ if [ -n "${ros_list_file}" ]; then
 fi
 
 log info "Removing installation residues from apt cache"
-apt-get autoclean >/dev/null
 apt-get autoremove --purge -y >/dev/null
 apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/*

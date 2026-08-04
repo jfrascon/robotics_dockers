@@ -360,7 +360,6 @@ sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
 # Cleanup
 #---------------------------------------------------------------------------------------------------
 log info "Removing installation residues from apt cache"
-apt-get autoclean >/dev/null
 apt-get autoremove --purge -y >/dev/null
 apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* 1>/dev/null 2>&1

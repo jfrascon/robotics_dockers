@@ -181,7 +181,6 @@ if [ -e /tmp/context/.resources/bash_aliases.user ]; then
 fi
 
 log "Removing installation residues from apt cache"
-apt-get autoclean >/dev/null
 apt-get autoremove --purge -y >/dev/null
 apt-get clean >/dev/null
 rm -rf /var/lib/apt/lists/* &>/dev/null
