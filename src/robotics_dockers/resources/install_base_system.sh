@@ -144,6 +144,7 @@ packages=(
     python3-setuptools
     rsync
     sed
+    shellcheck
     sudo
     tree
     valgrind
