@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+
+# Pass the image to upgrade with one of these BuildKit-based forms:
+#   DOCKER_BUILDKIT=1 docker build -f Dockerfile.upgrade --no-cache --build-arg BASE_IMAGE=<image:tag> -t <new-image:tag> .
+#   docker buildx build -f Dockerfile.upgrade --no-cache --build-arg BASE_IMAGE=<image:tag> -t <new-image:tag> .
+#
+# docker buildx build is the modern Docker image build interface and uses
+# BuildKit by design.
+# DOCKER_BUILDKIT=1 keeps the classic docker build command on the BuildKit backend when buildx is
+# not used explicitly.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+RUN apt-get update \
+    && apt-get dist-upgrade -y \
+    && apt-get autoremove --purge -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
