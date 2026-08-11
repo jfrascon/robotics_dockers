@@ -71,10 +71,7 @@ services:
         bind:
           create_host_path: false
 
-      - type: bind
-        source: /tmp/.X11-unix
-        target: /tmp/.X11-unix
-        read_only: true
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
 
       # +-----------------+
       # | Custom mappings |
