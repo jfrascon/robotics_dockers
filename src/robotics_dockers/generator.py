@@ -45,7 +45,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             False,
         ],
         'build.py': [
-            'build.j2',
+            'build.py.j2',
             {
                 'base_img': config.base_img,
                 'img_id': config.img_id,

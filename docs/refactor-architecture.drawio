@@ -34,7 +34,7 @@
         <mxCell id="errors" value="errors.py&#xa;errores propios&#xa;mensajes claros para CLI/API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="660" y="480" width="250" height="85" as="geometry" />
         </mxCell>
-        <mxCell id="resources" value="resources/&#xa;Dockerfile.j2&#xa;build.j2&#xa;docker-compose.j2&#xa;scripts .resources/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+        <mxCell id="resources" value="resources/&#xa;Dockerfile.j2&#xa;build.py.j2&#xa;docker-compose.j2&#xa;scripts .resources/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="1000" y="170" width="240" height="120" as="geometry" />
         </mxCell>
         <mxCell id="output" value="Contexto generado&#xa;Dockerfile&#xa;build.py&#xa;docker-compose-dev.yaml&#xa;.resources/*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cce5ff;strokeColor=#4d8ec9;fontSize=13;" vertex="1" parent="1">
