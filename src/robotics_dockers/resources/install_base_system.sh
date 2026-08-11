@@ -304,11 +304,12 @@ echo "${TARGET_USER}:${password}" | chpasswd ||
 
 # Create basic folders for configuration and binaries.
 dirs_to_create=(
-    "${TARGET_USER_HOME}/.cache"
-    "${TARGET_USER_HOME}/.config"
+    "${TARGET_USER_HOME}/.cache"  # XDG_CACHE_HOME
+    "${TARGET_USER_HOME}/.config" # XDG_CONFIG_HOME
     "${TARGET_USER_HOME}/.local/bin"
     "${TARGET_USER_HOME}/.local/lib"
-    "${TARGET_USER_HOME}/.local/share"
+    "${TARGET_USER_HOME}/.local/share" # XDG_DATA_HOME
+    "${TARGET_USER_HOME}/.local/state" # XDG_STATE_HOME
 )
 
 for dir in "${dirs_to_create[@]}"; do
