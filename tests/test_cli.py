@@ -39,7 +39,7 @@ def test_python_module_cli_creates_context(tmp_path: Path, output_option: str) -
     assert tmp_path.joinpath('Dockerfile').is_file()
     assert tmp_path.joinpath('build.py').is_file()
     assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
-    assert 'image_main_user = "dev"' in tmp_path.joinpath('build.py').read_text()
+    assert "image_main_user = 'dev'" in tmp_path.joinpath('build.py').read_text()
 
 
 def test_python_module_cli_accepts_nvidia_option(tmp_path: Path) -> None:
@@ -84,4 +84,4 @@ def test_python_module_cli_accepts_image_main_user_option(tmp_path: Path) -> Non
     )
 
     assert completed_process.returncode == 0, completed_process.stderr
-    assert 'image_main_user = "developer"' in tmp_path.joinpath('build.py').read_text()
+    assert "image_main_user = 'developer'" in tmp_path.joinpath('build.py').read_text()

@@ -140,8 +140,9 @@ def test_generate_docker_context_exposes_rosdep_packages_dir_option_by_default(t
     result = generate_docker_context(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest', tmp_path))
 
     build_script = result.context_dir.joinpath('build.py').read_text()
-    assert '"--pkgs-dir"' in build_script
+    assert "'--pkgs-dir'" in build_script
     assert 'if args.pkgs_dir:' in build_script
+    assert build_script.endswith('\n')
     resolved_config = resolve_config(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest'))
     assert resolved_config.rosdep_packages_dir_mode == 'cli'
 
@@ -158,10 +159,10 @@ def test_generate_docker_context_can_use_fixed_rosdep_packages_dir(tmp_path: Pat
     )
 
     build_script = result.context_dir.joinpath('build.py').read_text()
-    assert '"--pkgs-dir"' not in build_script
+    assert "'--pkgs-dir'" not in build_script
     assert 'configured_pkgs_dir' not in build_script
     assert 'is_absolute()' not in build_script
-    assert 'pkgs_dir = context_dir.joinpath("../src").resolve()' in build_script
+    assert "pkgs_dir = context_dir.joinpath('../src').resolve()" in build_script
     assert 'args.pkgs_dir' not in build_script
     assert (
         resolve_config(
@@ -184,9 +185,9 @@ def test_generate_docker_context_can_use_fixed_host_rosdep_packages_dir(tmp_path
     )
 
     build_script = result.context_dir.joinpath('build.py').read_text()
-    assert '"--pkgs-dir"' not in build_script
+    assert "'--pkgs-dir'" not in build_script
     assert 'configured_pkgs_dir' not in build_script
-    assert f'pkgs_dir = Path("{fixed_pkgs_dir}").expanduser().resolve()' in build_script
+    assert f"pkgs_dir = Path('{fixed_pkgs_dir}').expanduser().resolve()" in build_script
     assert 'args.pkgs_dir' not in build_script
     assert (
         resolve_config(
@@ -208,7 +209,7 @@ def test_generate_docker_context_treats_user_relative_rosdep_packages_dir_as_hos
     )
 
     build_script = result.context_dir.joinpath('build.py').read_text()
-    assert 'pkgs_dir = Path("~/workspace/src").expanduser().resolve()' in build_script
+    assert "pkgs_dir = Path('~/workspace/src').expanduser().resolve()" in build_script
     assert 'args.pkgs_dir' not in build_script
     assert (
         resolve_config(

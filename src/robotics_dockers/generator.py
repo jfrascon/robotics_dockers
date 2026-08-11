@@ -177,7 +177,10 @@ def _render_template(template_name: str, destination_path: Path, context: dict[s
         destination_path.parent.mkdir(parents=True)
 
     environment = Environment(
-        loader=PackageLoader('robotics_dockers', 'resources'), trim_blocks=True, lstrip_blocks=True
+        loader=PackageLoader('robotics_dockers', 'resources'),
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
     )
     rendered_text = environment.get_template(template_name).render(context)
     destination_path.write_text(rendered_text)
