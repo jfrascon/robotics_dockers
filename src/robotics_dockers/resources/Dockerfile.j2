@@ -40,6 +40,7 @@ required_context_paths=(
 {% if not use_host_nvidia_driver %}
     .resources/install_mesa_packages.sh
 {% endif %}
+    .resources/install_gh.sh
     .resources/install_ros.sh
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
@@ -125,6 +126,9 @@ bash /tmp/context/.resources/rosdep_init_update_install.sh \
 
 bash /tmp/context/.resources/colcon_mixin_metadata.sh "${IMAGE_MAIN_USER}" || \
     handle_error 1 "Failed to run 'colcon_mixin_metadata.sh'"
+
+bash /tmp/context/.resources/install_gh.sh || \
+    handle_error 1 "Failed to run 'install_gh.sh'"
 
 image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
 image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"

@@ -76,6 +76,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
         '.resources/install_pkgs': ['install_pkgs', True],
         '.resources/install_base_system.sh': ['install_base_system.sh', True],
         '.resources/install_extra_pkgs.sh': ['install_extra_pkgs.sh', True],
+        '.resources/install_gh.sh': ['install_gh.sh', True],
         '.resources/install_ros.sh': ['install_ros2.sh', True],
         '.resources/check_entrypoint_d': ['check_entrypoint_d', True],
         '.resources/rosbuild': ['ros2build', True],
