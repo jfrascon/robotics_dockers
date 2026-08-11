@@ -29,6 +29,23 @@ def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
     assert tmp_path.joinpath('.resources', 'entrypoint.d', '99-uid-gid-adapt.sh').is_file()
 
 
+def test_generate_docker_context_requires_non_empty_runtime_ids(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    compose = result.context_dir.joinpath('docker-compose-dev.yaml').read_text()
+
+    assert '${HOST_UID:?HOST_UID must be set}' in compose
+    assert '${HOST_UPGID:?HOST_UPGID must be set}' in compose
+    assert '${RENDER_GID:?RENDER_GID must be set}' in compose
+    assert '${HOST_UID?HOST_UID must be set}' not in compose
+    assert '${HOST_UPGID?HOST_UPGID must be set}' not in compose
+    assert '${RENDER_GID?RENDER_GID must be set}' not in compose
+
+
 def test_generate_docker_context_uses_named_temporary_output_dir() -> None:
     result = generate_docker_context(DockerContextConfig('developer', 'jazzy', 'local/ros-test:latest'))
 
