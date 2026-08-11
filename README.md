@@ -666,7 +666,7 @@ Run this command on the host before starting the container:
 xhost +SI:localuser:"$(id -un)"
 ```
 
-When using this option, remove the XAuth-specific configuration from the rendered `docker-compose-dev.yaml`. Do not modify `src/robotics_dockers/resources/docker-compose.j2`, because Option A remains the project default.
+When using this option, remove the XAuth-specific configuration from the rendered `docker-compose-dev.yaml`. Do not modify `src/robotics_dockers/resources/docker-compose.yaml.j2`, because Option A remains the project default.
 
 Remove this bind mount from the rendered Compose file:
 

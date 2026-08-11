@@ -57,7 +57,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             True,
         ],
         'docker-compose-dev.yaml': [
-            'docker-compose.j2',
+            'docker-compose.yaml.j2',
             {
                 'service': f'{config.img_id.replace(":", "_").replace("/", "_")}_cont',
                 'img_id': config.img_id,

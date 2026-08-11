@@ -100,7 +100,7 @@ Important files include:
 
 - `Dockerfile.j2`: template for the generated Dockerfile.
 - `build.py.j2`: template for the generated `build.py`.
-- `docker-compose.j2`: template for the generated `docker-compose-dev.yaml`.
+- `docker-compose.yaml.j2`: template for the generated `docker-compose-dev.yaml`.
 - `entrypoint.sh`: container entrypoint script.
 - `entrypoint.d/`: startup scripts executed by the entrypoint.
 - `install_base_system.sh`: base system dependency installation.
