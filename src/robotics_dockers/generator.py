@@ -16,7 +16,7 @@ from robotics_dockers.config import (
 )
 from robotics_dockers.errors import MissingResourceError
 
-ResourceSpec = list[str | dict[str, Any] | bool]
+ResourceSpec = list[str | dict[str, Any] | bool | None]
 
 
 def generate_docker_context(config: DockerContextConfig) -> DockerContextResult:
@@ -78,9 +78,9 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
         '.resources/install_extra_pkgs.sh': ['install_extra_pkgs.sh', True],
         '.resources/install_gh.sh': ['install_gh.sh', True],
         '.resources/install_ros.sh': ['install_ros2.sh', True],
-        '.resources/check_entrypoint_d': ['check_entrypoint_d', True],
         '.resources/rosbuild': ['ros2build', True],
         '.resources/rosdep_init_update_install.sh': ['rosdep_init_update_install.sh', True],
+        '.resources/entrypoint.d': [None],
         '.resources/extra.d/apt_packages.sh': ['extra.d/apt_packages.sh', True],
         '.resources/extra.d/requirements.txt': ['extra.d/requirements.txt', False],
         '.resources/extra.d/rust_packages.txt': ['extra.d/rust_packages.txt', False],
@@ -89,15 +89,13 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
     items_to_install['.resources/colcon_mixin_metadata.sh'] = ['colcon_mixin_metadata.sh', True]
     items_to_install['.resources/skip_rosdep_keys'] = ['skip_rosdep_keys', True]
     items_to_install['.resources/rosdep_skip_keys.txt'] = ['rosdep_skip_keys.txt', False]
-    items_to_install['.resources/entrypoint.sh'] = ['entrypoint.sh', True]
-    items_to_install['.resources/entrypoint.d/99-uid-gid-adapt.sh'] = ['entrypoint.d/99-uid-gid-adapt.sh', True]
+    items_to_install['.resources/entrypoint.sh'] = [
+        'entrypoint.sh.j2',
+        {'use_host_nvidia_driver': config.use_host_nvidia_driver},
+        True,
+    ]
 
-    if config.use_host_nvidia_driver:
-        items_to_install['.resources/entrypoint.d/98-nvidia-gpu-driver-check.sh'] = [
-            'entrypoint.d/98-nvidia-gpu-driver-check.sh',
-            True,
-        ]
-    else:
+    if not config.use_host_nvidia_driver:
         items_to_install['.resources/install_mesa_packages.sh'] = ['install_mesa_packages.sh', True]
 
     items_to_install['.resources/bashrc.user'] = ['bashrc.user', True]

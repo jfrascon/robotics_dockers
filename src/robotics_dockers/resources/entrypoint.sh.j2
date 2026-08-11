@@ -17,6 +17,8 @@
 #     HOST_UPGID taken by other -> rename dance (assign new name to conflicting
 #                                  group, then give our group name its GID)
 #     HOST_UPGID already set    -> no-op
+#   If NVIDIA support is enabled, check that the GPU driver is visible.
+#   Run root hooks from /etc/entrypoint.d, if any.
 #   chown home (skipping bind mounts) -> gosu -> exec
 # Render device access (/dev/dri/renderD*) is NOT handled here. It must be
 # configured via 'group_add' in docker-compose, passing the host GID of the
@@ -27,6 +29,7 @@
 # Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
 
 LOG_FILE="/tmp/log.log"
+ROOT_HOOKS_DIR="/etc/entrypoint.d"
 REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than 1000"
 
 chown_home_without_crossing_mounts() {
@@ -102,7 +105,7 @@ generate_unique_name() {
     esac
 
     while :; do
-        candidate="${prefix}$(tr -dc 'a-z' </dev/urandom | head -c 8)"
+        candidate="${prefix}$(LC_ALL=C tr -dc '[:lower:]' </dev/urandom | head -c 8)"
         if ! getent "${getent_target}" "${candidate}" >/dev/null 2>&1; then
             echo "${candidate}"
             return
@@ -154,11 +157,6 @@ handle_error() {
     exit "${exit_code}"
 }
 
-fail_validation() {
-    log error "${1}"
-    exit 1
-}
-
 print_banner() {
     local message="${1}"
     local fd="${2:-1}"          # default to 1 (stdout) if not provided
@@ -170,7 +168,8 @@ print_banner() {
     fi
 
     local line=" ${message} "
-    local len=${#line}
+    local len
+    len="$(printf '%s' "${line}" | wc -c)"
     local border
     border="$(printf "%${len}s" | tr ' ' "${border_char}")"
 
@@ -178,6 +177,83 @@ print_banner() {
     printf '%s\n' "${border}" >&"${fd}"
     printf '%s\n' "${line}" >&"${fd}"
     printf '%s\n' "${border}" >&"${fd}"
+}
+
+# {% if use_host_nvidia_driver %}
+nvidia_gpu_driver_check() {
+    local libcuda_from_ld_cache
+    local libcuda_from_ld_library_path=""
+    local libcuda_found
+    local driver_found="false"
+    local library_path
+    local library_paths=()
+
+    # Check if libcuda.so.1, the CUDA driver, is present in the ld.so cache or in LD_LIBRARY_PATH.
+    libcuda_from_ld_cache="$(ldconfig -p 2>/dev/null | grep 'libcuda.so.1' || true)"
+
+    if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+        IFS=: read -ra library_paths <<<"${LD_LIBRARY_PATH}"
+        for library_path in "${library_paths[@]}"; do
+            [ -z "${library_path}" ] && continue
+            if [[ -e "${library_path}/libcuda.so.1" && ${library_path} != *compat* ]]; then
+                libcuda_from_ld_library_path+="${library_path}/libcuda.so.1"
+            fi
+        done
+    fi
+
+    libcuda_found="${libcuda_from_ld_cache}${libcuda_from_ld_library_path}"
+
+    # Check common NVIDIA device nodes: Linux, WSL2, and Tegra.
+    if [ -e /dev/nvidiactl ] || [ -e /dev/dxg ] || [ -e /dev/nvgpu ]; then
+        driver_found="true"
+    fi
+
+    # If either condition is false, GPU functionality will not be usable.
+    if [[ -z ${libcuda_found} || ${driver_found} != "true" ]]; then
+        echo >&2
+        echo "ERROR: The NVIDIA Driver was not detected. GPU functionality will not be available." >&2
+        echo "   Use the NVIDIA Container Toolkit to start this container with GPU support; see" >&2
+        echo "   https://docs.nvidia.com/datacenter/cloud-native/ ." >&2
+        return 1
+    fi
+
+    log info "NVIDIA driver detected inside the container"
+}
+# {% endif %}
+
+run_root_entrypoint_hooks() {
+    local hooks_dir="${1}"
+    local hook_file
+    local hooks_found=0
+
+    # A hook is an optional project script that runs at a defined point during startup.
+    # These hooks run as root after UID/GID adaptation and before the final gosu call.
+    # Shell scripts are executed with bash, not sourced, so exported variables do not
+    # leak into the final user session.
+    if [ ! -d "${hooks_dir}" ]; then
+        log info "Root hook directory '${hooks_dir}' does not exist; skipping project startup hooks"
+        return 0
+    fi
+
+    while IFS= read -r -d '' hook_file; do
+        hooks_found=1
+
+        case "${hook_file}" in
+        *.txt)
+            log info "Printing root hook text file '${hook_file}'"
+            cat "${hook_file}" || handle_error 1 "Root hook text file '${hook_file}' failed"
+            ;;
+        *.sh)
+            log info "Running root hook script '${hook_file}'"
+            bash "${hook_file}" || handle_error 1 "Root hook script '${hook_file}' failed"
+            ;;
+        *) ;;
+        esac
+    done < <(find "${hooks_dir}" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.sh' \) -print0 | sort -z)
+
+    if [ "${hooks_found}" -eq 0 ]; then
+        log info "No root hooks found in '${hooks_dir}'"
+    fi
 }
 
 #---------------------------------------------------------------------------------------------------
@@ -191,7 +267,6 @@ current_user_entry="$(getent passwd "${current_user_id}" 2>/dev/null)"
 current_user="$(echo "${current_user_entry}" | cut -d: -f1)"
 current_user_pri_group_id="$(echo "${current_user_entry}" | cut -d: -f4)"
 current_user_pri_group="$(getent group "${current_user_pri_group_id}" | cut -d: -f1)"
-current_user_home="$(echo "${current_user_entry}" | cut -d: -f6)"
 
 print_banner "Entrypoint: starting container for user '${IMAGE_MAIN_USER}'"
 
@@ -200,21 +275,25 @@ script="${BASH_SOURCE:-${0}}"
 log info "Executing script '${script}' with user '${current_user}' (UID '${current_user_id}') and primary group '${current_user_pri_group}' (UPGID '${current_user_pri_group_id}')"
 
 # ---------------------------------------------------------------------------
-# Redundant precondition checks.
+# Precondition checks.
 #
-# entrypoint.sh already validated these before running this script.
-# Repeated here so this script is self-contained and coherent on its own.
+# This image requires:
+#   1. The container must start as root (UID 0).
+#   2. HOST_UID and HOST_UPGID must exist, be non-empty integers > 1000.
+#
+# These are the contract this image imposes on the caller. Any other
+# combination is a misconfiguration and fails with a clear message.
 # ---------------------------------------------------------------------------
 if [ "${current_user_id}" -ne 0 ]; then
-    fail_validation "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
+    handle_error 1 "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
 fi
 
 if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
-    fail_validation "HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
+    handle_error 1 "HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
 fi
 
 if [ -z "${HOST_UPGID}" ] || ! [[ ${HOST_UPGID} =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
-    fail_validation "HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
+    handle_error 1 "HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
 fi
 
 log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"
@@ -396,6 +475,14 @@ if [ "${HOST_UPGID}" != "${image_main_user_pri_group_id}" ]; then
     usermod --gid "${HOST_UPGID}" "${IMAGE_MAIN_USER}"
     log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
 fi
+
+# {% if use_host_nvidia_driver %}
+if [ "${USE_HOST_NVIDIA_DRIVER}" = "true" ]; then
+    nvidia_gpu_driver_check || exit 1
+fi
+# {% endif %}
+
+run_root_entrypoint_hooks "${ROOT_HOOKS_DIR}"
 
 # Update home directory ownership to the final UID:GID, regardless of which code paths
 # above were taken. Bind-mounted host paths inside the home are intentionally skipped.

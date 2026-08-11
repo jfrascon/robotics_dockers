@@ -45,16 +45,11 @@ required_context_paths=(
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
     .resources/entrypoint.sh
-    .resources/check_entrypoint_d
     .resources/skip_rosdep_keys
     .resources/rosdep_skip_keys.txt
     .resources/rosbuild
     .resources/rosdep_init_update_install.sh
     .resources/colcon_mixin_metadata.sh
-    .resources/entrypoint.d/99-uid-gid-adapt.sh
-{% if use_host_nvidia_driver %}
-    .resources/entrypoint.d/98-nvidia-gpu-driver-check.sh
-{% endif %}
 )
 
 for relative_path in "${required_context_paths[@]}"; do
@@ -62,6 +57,10 @@ for relative_path in "${required_context_paths[@]}"; do
         handle_error 1 "File not found: ${context_dir}/${relative_path}"
     fi
 done
+
+if [ ! -d "${context_dir}/.resources/entrypoint.d" ]; then
+    handle_error 1 "Directory not found: ${context_dir}/.resources/entrypoint.d"
+fi
 EOF
 
 # Configure apt network timeouts and retries so slow mirrors fail instead of hanging indefinitely.
@@ -159,18 +158,19 @@ chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_M
 log "Installing file '/usr/local/bin/entrypoint.sh'"
 install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-log "Installing file '/usr/local/bin/check_entrypoint_d'"
-install --owner root --group root --mode 775 /tmp/context/.resources/check_entrypoint_d /usr/local/bin/check_entrypoint_d
-
-log "Validating entrypoint.d context before installing scripts"
-bash /tmp/context/.resources/check_entrypoint_d /tmp/context/.resources/entrypoint.d || exit 1
-
-log "Installing entrypoint.d scripts to /etc/entrypoint.d/"
+log "Installing root hook scripts to /etc/entrypoint.d/"
 mkdir --parent /etc/entrypoint.d
-install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/99-uid-gid-adapt.sh /etc/entrypoint.d/99-uid-gid-adapt.sh
-{% if use_host_nvidia_driver %}
-install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.d/98-nvidia-gpu-driver-check.sh /etc/entrypoint.d/98-nvidia-gpu-driver-check.sh
-{% endif %}
+while IFS= read -r -d '' hook_path; do
+    hook_name="$(basename "${hook_path}")"
+    hook_mode="775"
+
+    if [[ ${hook_path} == *.txt ]]; then
+        hook_mode="664"
+    fi
+
+    log "Installing root hook '/etc/entrypoint.d/${hook_name}'"
+    install --owner root --group root --mode "${hook_mode}" "${hook_path}" "/etc/entrypoint.d/${hook_name}"
+done < <(find /tmp/context/.resources/entrypoint.d -maxdepth 1 -type f \( -name '*.sh' -o -name '*.txt' \) -print0 | sort -z)
 
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
 install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path"

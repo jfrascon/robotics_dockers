@@ -357,17 +357,15 @@ If the file contains only comments or blank lines, the Rust toolchain is
 
 ### Startup scripts (entrypoint.d)
 
-When the container starts, the custom entrypoint runs all scripts found in `/etc/entrypoint.d/` in alphabetical order. Scripts with a `.sh` extension are **sourced**. Scripts with a `.txt` extension are printed to stdout.
+When the container starts, `/usr/local/bin/entrypoint.sh` first handles the built-in startup work: it adapts the internal user UID/GID to match `HOST_UID`/`HOST_UPGID`, checks NVIDIA driver access when `--nvidia` was used, runs optional project hooks, fixes ownership of the image-owned home directory, and finally calls `gosu` to start the development user session.
 
-Every file must follow the naming convention `NN-name.sh` or `NN-name.txt`, where `NN` is **exactly two digits** (e.g. `01`, `50`, `99`). Files that do not match this pattern cause the container to abort at startup.
+A hook is a script that a project places in a known directory so the entrypoint runs it at a defined point during startup. In this project, `/etc/entrypoint.d/` contains optional **root hooks**: scripts provided by the generated project, executed as `root`, after UID/GID adaptation and before the final `gosu` call.
 
-Two scripts are always included:
+Root hooks run in alphabetical order. Files ending in `.sh` are executed with `bash`; they are not sourced. Files ending in `.txt` are printed to stdout. Because `.sh` hooks run as separate processes, variables exported by those scripts do not leak into the final user session. If a hook needs to pass information forward, write it to a file in a path that the later process can read.
 
-| Script                | Purpose                                                                                                                                                                                             |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `99-uid-gid-adapt.sh` | Remaps the internal user UID/GID to match `HOST_UID`/`HOST_UPGID` and performs the final `exec` that starts the user session. Runs last. Do not use `99` for your own scripts. |
+Root hooks run before the final home ownership normalization. Files created under the image-owned home can be reassigned to `HOST_UID:HOST_UPGID`; files created inside bind mounts are not corrected automatically.
 
-The behaviour of `99-uid-gid-adapt.sh` requires the following preconditions. If they are not met, the container aborts with a clear error message:
+The entrypoint requires the following preconditions. If they are not met, the container aborts with a clear error message:
 
 | Precondition           | Requirement                                                    |
 | ---------------------- | -------------------------------------------------------------- |
@@ -375,7 +373,7 @@ The behaviour of `99-uid-gid-adapt.sh` requires the following preconditions. If 
 | `HOST_UID`             | Must exist, be non-empty, and be an integer greater than 1000  |
 | `HOST_UPGID`           | Must exist, be non-empty, and be an integer greater than 1000  |
 
-When all preconditions are met, `99-uid-gid-adapt.sh` remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start the development user session.
+When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start the development user session.
 
 The typical setup is `user: root` in docker-compose with `HOST_UID=$(id -u)` and `HOST_UPGID=$(id -g)` provided via a `.env` file or environment variables.
 
@@ -395,15 +393,11 @@ With `docker compose up`:
 With VS Code Dev Containers:
 
 - If you use VS Code Dev Containers with a `devcontainer.json` configuration file, the container starts according to the `docker-compose.yaml` referenced by `devcontainer.json` (or the Dockerfile `USER`), following the same rules as `docker compose up` above.
-- In the generated Docker Compose configuration, the service starts as `root`. This is intentional: `99-uid-gid-adapt.sh` needs root privileges so it can remap the image development user UID/GID to match `HOST_UID` and `HOST_UPGID`.
+- In the generated Docker Compose configuration, the service starts as `root`. This is intentional: the entrypoint needs root privileges so it can remap the image development user UID/GID to match `HOST_UID` and `HOST_UPGID`.
 - Starting the container as `root` is only the mechanism that makes the UID/GID adaptation possible. It is not the desired interactive user for VS Code.
 - **When VS Code Dev Containers is used, `remoteUser` should be set to `IMAGE_MAIN_USER`.** Without `remoteUser`, VS Code can attach using the `root` user from the Docker Compose `user:` setting. With `remoteUser` set, VS Code runs its remote server, terminals, and editor-side operations as the development user whose UID/GID was adapted by the entrypoint.
 
-When `--nvidia` is passed, an additional script is included:
-
-| Script | Purpose |
-| --- | --- |
-| <nobr>`98-nvidia-gpu-driver-check.sh`</nobr> | Runs at startup and checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker (e.g. `--gpus all` was omitted from `docker run`, or `deploy.resources` is missing from `docker-compose.yaml`). In this case the driver exists on the host but Docker has not exposed it to the container; (2) the NVIDIA Container Toolkit is not installed on the host. This is the component that makes it possible for Docker to expose GPUs at all. In either case the script prints a warning to stdout and sets `NVIDIA_CPU_ONLY=1`. Based on the [upstream NVIDIA script](https://gitlab.com/nvidia/container-images/cuda/-/blob/master/entrypoint.d/50-gpu-driver-check.sh). The warning goes to stdout. If you start the container with `docker compose up -d` it will not appear in the terminal. Check it with `docker compose logs <service>`. Do not use `98` for your own scripts if `--nvidia` was used. |
+When `--nvidia` is passed, the entrypoint checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker, for example `--gpus all` was omitted from `docker run` or `deploy.resources` is missing from `docker-compose.yaml`; (2) the NVIDIA Container Toolkit is not installed on the host. In either case the entrypoint prints an error and aborts the container startup.
 
 #### Using a base image that has its own entrypoint
 
@@ -412,7 +406,7 @@ This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), wh
 Instead:
 
 1. Find the relevant script(s) in the base image entrypoint.
-2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**, using an appropriate numeric prefix (e.g. `10-print-ros-env.sh`). `build.py` will copy it into the image automatically.
+2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**. Use the filename to control alphabetical order, for example `10-print-ros-env.sh`. `build.py` will copy it into the image automatically.
 3. Run `build.py` as usual. The script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:
@@ -430,6 +424,8 @@ docker run --rm --entrypoint cat <base_img> /path/to/entrypoint.sh
 ### NVIDIA GPU support
 
 Pass `--nvidia` when generating. This configures the docker-compose file to use `deploy.resources` with the NVIDIA driver.
+
+When `--nvidia` is enabled, the entrypoint checks at startup that the CUDA driver library and an NVIDIA device node are visible inside the container. If either check fails, startup aborts with an explicit error. Check the service logs with `docker compose logs <service>` if the container was started in detached mode.
 
 You also need to provide the GID of the render device so all processes (including those started by VS Code) can access `/dev/dri/renderD*`:
 

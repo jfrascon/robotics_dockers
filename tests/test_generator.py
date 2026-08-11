@@ -26,7 +26,7 @@ def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
     assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
     assert tmp_path.joinpath('.resources', 'rosdep_skip_keys.txt').is_file()
     assert tmp_path.joinpath('.resources', 'entrypoint.sh').is_file()
-    assert tmp_path.joinpath('.resources', 'entrypoint.d', '99-uid-gid-adapt.sh').is_file()
+    assert tmp_path.joinpath('.resources', 'entrypoint.d').is_dir()
 
 
 def test_generate_docker_context_requires_non_empty_runtime_ids(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_generate_docker_context_installs_mesa_only_without_nvidia(tmp_path: Pat
 
 
 def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path: Path) -> None:
-    generate_docker_context(
+    result = generate_docker_context(
         DockerContextConfig(
             image_main_user='developer',
             ros_distro='jazzy',
@@ -131,7 +131,10 @@ def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path:
         )
     )
 
-    assert tmp_path.joinpath('.resources', 'entrypoint.d', '98-nvidia-gpu-driver-check.sh').is_file()
+    dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
+
+    assert 'USE_HOST_NVIDIA_DRIVER="true"' in dockerfile
+    assert not tmp_path.joinpath('.resources', 'entrypoint.d', '98-nvidia-gpu-driver-check.sh').exists()
 
 
 def test_generate_docker_context_uses_configured_image_metadata(tmp_path: Path) -> None:

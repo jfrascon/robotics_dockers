@@ -5,12 +5,9 @@ from robotics_dockers.config import DockerContextConfig, resolve_config
 from robotics_dockers.generator import _create_items_to_install
 
 BASH_RESOURCE_FILES = (
-    'check_entrypoint_d',
     'colcon_mixin_metadata.sh',
     'deduplicate_path',
-    'entrypoint.sh',
-    'entrypoint.d/98-nvidia-gpu-driver-check.sh',
-    'entrypoint.d/99-uid-gid-adapt.sh',
+    'entrypoint.sh.j2',
     'install_base_system.sh',
     'install_extra_pkgs.sh',
     'install_gh.sh',
