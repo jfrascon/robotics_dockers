@@ -142,9 +142,11 @@ packages=(
     python3-pip
     python3-pytest
     python3-setuptools
+    ripgrep
     rsync
     sed
     shellcheck
+    shfmt
     sudo
     tree
     valgrind
