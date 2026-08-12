@@ -149,6 +149,7 @@ packages=(
     shfmt
     sudo
     tree
+    util-linux
     valgrind
     vim
     wget

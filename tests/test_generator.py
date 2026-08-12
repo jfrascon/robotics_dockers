@@ -40,9 +40,25 @@ def test_generate_docker_context_requires_non_empty_runtime_ids(tmp_path: Path) 
 
     assert '${HOST_UID:?HOST_UID must be set}' in compose
     assert '${HOST_UPGID:?HOST_UPGID must be set}' in compose
+    assert '${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}' in compose
+    assert '${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}' in compose
     assert '${RENDER_GID:?RENDER_GID must be set}' in compose
+    assert 'source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"' in compose
+    assert (
+        '- ${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}'
+        ':/home/developer/workspace' in compose
+    )
+    assert 'target: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"' in compose
+    assert 'XDG_RUNTIME_DIR: "/run/user/${HOST_UID:?HOST_UID must be set}"' in compose
+    assert 'XAUTHORITY: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"' in compose
+    assert 'CONTAINER_ROS_WORKSPACE: "/home/developer/workspace"' in compose
+    assert (
+        '- /run/user/${HOST_UID:?HOST_UID must be set}:mode=700,'
+        'uid=${HOST_UID:?HOST_UID must be set},gid=${HOST_UPGID:?HOST_UPGID must be set}' in compose
+    )
     assert '${HOST_UID?HOST_UID must be set}' not in compose
     assert '${HOST_UPGID?HOST_UPGID must be set}' not in compose
+    assert '${HOST_XAUTHORITY_FILE?HOST_XAUTHORITY_FILE must be set}' not in compose
     assert '${RENDER_GID?RENDER_GID must be set}' not in compose
 
 
@@ -132,9 +148,29 @@ def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path:
     )
 
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
+    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint.sh').read_text()
 
     assert 'USE_HOST_NVIDIA_DRIVER="true"' in dockerfile
-    assert not tmp_path.joinpath('.resources', 'entrypoint.d', '98-nvidia-gpu-driver-check.sh').exists()
+    assert 'nvidia_gpu_driver_check()' in entrypoint
+
+
+def test_generate_docker_context_sets_xdg_environment_in_entrypoint(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint.sh').read_text()
+
+    assert 'default_xdg_runtime_dir="/run/user/${HOST_UID}"' in entrypoint
+    assert 'xdg_runtime_dir="${XDG_RUNTIME_DIR:-${default_xdg_runtime_dir}}"' in entrypoint
+    assert 'XDG_RUNTIME_DIR="${xdg_runtime_dir}"' in entrypoint
+    assert 'XDG_CACHE_HOME=' not in entrypoint
+    assert 'XDG_CONFIG_HOME=' not in entrypoint
+    assert 'XDG_DATA_HOME=' not in entrypoint
+    assert 'XDG_STATE_HOME=' not in entrypoint
+    assert '"${image_main_user_home}/.entrypoint_user.sh"' in entrypoint
 
 
 def test_generate_docker_context_uses_configured_image_metadata(tmp_path: Path) -> None:

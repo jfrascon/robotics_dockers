@@ -71,13 +71,16 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             },
             False,
         ],
-        '.resources/bash_aliases.user': ['bash_aliases.user', True],
+        '.resources/bash_aliases_user': ['bash_aliases_user', True],
         '.resources/deduplicate_path': ['deduplicate_path', True],
+        '.resources/entrypoint_user.sh': ['entrypoint_user.sh', True],
+        '.resources/env.rc': ['env.rc', True],
         '.resources/install_pkgs': ['install_pkgs', True],
         '.resources/install_base_system.sh': ['install_base_system.sh', True],
         '.resources/install_extra_pkgs.sh': ['install_extra_pkgs.sh', True],
         '.resources/install_gh.sh': ['install_gh.sh', True],
         '.resources/install_ros.sh': ['install_ros2.sh', True],
+        '.resources/ros.rc': ['ros.rc', True],
         '.resources/rosbuild': ['ros2build', True],
         '.resources/rosdep_init_update_install.sh': ['rosdep_init_update_install.sh', True],
         '.resources/entrypoint.d': [None],
@@ -98,7 +101,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
     if not config.use_host_nvidia_driver:
         items_to_install['.resources/install_mesa_packages.sh'] = ['install_mesa_packages.sh', True]
 
-    items_to_install['.resources/bashrc.user'] = ['bashrc.user', True]
+    items_to_install['.resources/bashrc_user'] = ['bashrc_user', True]
 
     return items_to_install
 

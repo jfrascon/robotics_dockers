@@ -17,46 +17,64 @@
 #     HOST_UPGID taken by other -> rename dance (assign new name to conflicting
 #                                  group, then give our group name its GID)
 #     HOST_UPGID already set    -> no-op
+#   chown home (skipping bind mounts)
 #   If NVIDIA support is enabled, check that the GPU driver is visible.
 #   Run root hooks from /etc/entrypoint.d, if any.
-#   chown home (skipping bind mounts) -> gosu -> exec
-# Render device access (/dev/dri/renderD*) is NOT handled here. It must be
-# configured via 'group_add' in docker-compose, passing the host GID of the
-# render device so all container processes inherit it from the start.
+#   Prepare XDG_RUNTIME_DIR -> gosu -> user entrypoint -> persistent XDG dirs -> exec
+# Render device access (/dev/dri/renderD*) is NOT handled here.
+# It must be configured via 'group_add' in docker-compose, passing the host GID
+# of the render device so all container processes inherit it from the start.
 
 # set -e is intentionally not used in this script.
 
 # Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
 
 LOG_FILE="/tmp/log.log"
-ROOT_HOOKS_DIR="/etc/entrypoint.d"
 REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than 1000"
 
+# Update the ownership of the image user's home directory without entering bind mounts.
+# The home directory may contain paths mounted from the host, for example the workspace, .gitconfig,
+# .bashrc_user, or other project files. Those paths already belong to the host user.
+# Changing their ownership from the entrypoint is unnecessary and can be very expensive.
+# Mounting the home directory itself is not supported because it hides files installed by the image,
+# such as .entrypoint_user.sh, .env.rc, .ros.rc, and .bashrc_user.
 chown_home_without_crossing_mounts() {
-    local home_dir="${1}"
+    # Remove one trailing slash so mount-point comparisons use a stable home path.
+    local home_dir="${1%/}"
     local owner="${2}"
     local mount_path
     local find_args
     local home_mounts
+    local mount_targets
 
-    # Update the ownership of the image user's home directory without entering bind mounts.
-    # The home directory may contain paths mounted from the host, for example the workspace,
-    # .gitconfig, .bashrc.user, or other project files. Those paths already belong to the host user.
-    # Changing their ownership from the entrypoint is unnecessary and can be very expensive.
-    #
-    # /proc/self/mountinfo is the kernel view of the mount points visible to this process.
-    # Field 5 is the mount point path. Spaces are escaped as \040 in this file.
+    if [ ! -d "${home_dir}" ]; then
+        handle_error 1 "Home directory '${home_dir}' does not exist"
+    fi
+
+    if ! command -v findmnt >/dev/null 2>&1; then
+        handle_error 1 "findmnt is required to detect mounted paths under '${home_dir}'"
+    fi
+
+    # When findmnt reports the home directory itself as a mount target, write a sentinel
+    # line prefixed with __HOME_MOUNT__. The loop below detects that marker and fails
+    # explicitly instead of treating the home directory as just another path to prune.
+    # findmnt returns mount targets as usable paths, so this script does not need to
+    # interpret escape sequences from /proc/self/mountinfo directly.
+    mount_targets="$(findmnt --raw --noheadings --output TARGET)" || \
+        handle_error 1 "Failed to list mounted paths with findmnt"
+
     mapfile -t home_mounts < <(
         awk -v home="${home_dir}" '
             {
-                mount_point = $5
-                gsub(/\\040/, " ", mount_point)
+                mount_point = $0
 
-                if (index(mount_point, home "/") == 1) {
+                if (mount_point == home) {
+                    printf "%s%s\n", "__HOME_MOUNT__", mount_point
+                } else if (index(mount_point, home "/") == 1) {
                     print mount_point
                 }
             }
-        ' /proc/self/mountinfo
+        ' <<<"${mount_targets}"
     )
 
     # Start the find expression at the home directory. Extra entries are appended below to
@@ -64,16 +82,22 @@ chown_home_without_crossing_mounts() {
     find_args=("${home_dir}")
 
     for mount_path in "${home_mounts[@]}"; do
-        log info "Skipping mounted path during home ownership update: ${mount_path}"
+        case "${mount_path}" in
+        __HOME_MOUNT__*)
+            handle_error 1 "Home directory '${home_dir}' is a mount point. Mounting IMAGE_MAIN_USER home directly is not supported."
+            ;;
+        esac
 
         # -path <mount> -prune stops find from entering that mounted path.
         # -o keeps evaluating the final -exec chown branch for every non-pruned path.
+        log info "Skipping mounted path during home ownership update: ${mount_path}"
         find_args+=(-path "${mount_path}" -prune -o)
     done
 
     # chown -h changes symlink ownership instead of following symlinks.
     # The command updates regular home content but does not cross into mounted host paths.
-    find "${find_args[@]}" -exec chown -h "${owner}" {} +
+    find "${find_args[@]}" -exec chown -h "${owner}" {} + || \
+        handle_error 1 "Failed to update ownership under '${home_dir}'"
 }
 
 # Find first integer that can be used as uid and gid above >= 2000
@@ -179,6 +203,8 @@ print_banner() {
     printf '%s\n' "${border}" >&"${fd}"
 }
 
+# Jinja still interprets control lines when they start with '#', while Bash treats them as comments.
+# This keeps the unrendered template valid for bash -n and shellcheck.
 # {% if use_host_nvidia_driver %}
 nvidia_gpu_driver_check() {
     local libcuda_from_ld_cache
@@ -222,37 +248,37 @@ nvidia_gpu_driver_check() {
 # {% endif %}
 
 run_root_entrypoint_hooks() {
-    local hooks_dir="${1}"
-    local hook_file
-    local hooks_found=0
+    local root_hooks_dir="${1}"
+    local root_hooks_found=0
+    local root_hook_file
 
     # A hook is an optional project script that runs at a defined point during startup.
     # These hooks run as root after UID/GID adaptation and before the final gosu call.
     # Shell scripts are executed with bash, not sourced, so exported variables do not
     # leak into the final user session.
-    if [ ! -d "${hooks_dir}" ]; then
-        log info "Root hook directory '${hooks_dir}' does not exist; skipping project startup hooks"
+    if [ ! -d "${root_hooks_dir}" ]; then
+        log info "Root hook directory '${root_hooks_dir}' does not exist; skipping project startup hooks"
         return 0
     fi
 
-    while IFS= read -r -d '' hook_file; do
-        hooks_found=1
+    while IFS= read -r -d '' root_hook_file; do
+        root_hooks_found=1
 
-        case "${hook_file}" in
+        case "${root_hook_file}" in
         *.txt)
-            log info "Printing root hook text file '${hook_file}'"
-            cat "${hook_file}" || handle_error 1 "Root hook text file '${hook_file}' failed"
+            log info "Printing root hook text file '${root_hook_file}'"
+            cat "${root_hook_file}" || handle_error 1 "Root hook text file '${root_hook_file}' failed"
             ;;
         *.sh)
-            log info "Running root hook script '${hook_file}'"
-            bash "${hook_file}" || handle_error 1 "Root hook script '${hook_file}' failed"
+            log info "Running root hook script '${root_hook_file}'"
+            bash "${root_hook_file}" || handle_error 1 "Root hook script '${root_hook_file}' failed"
             ;;
         *) ;;
         esac
-    done < <(find "${hooks_dir}" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.sh' \) -print0 | sort -z)
+    done < <(find "${root_hooks_dir}" -maxdepth 1 -type f \( -name '*.txt' -o -name '*.sh' \) -print0 | sort -z)
 
-    if [ "${hooks_found}" -eq 0 ]; then
-        log info "No root hooks found in '${hooks_dir}'"
+    if [ "${root_hooks_found}" -eq 0 ]; then
+        log info "No root hooks found in '${root_hooks_dir}'"
     fi
 }
 
@@ -476,35 +502,57 @@ if [ "${HOST_UPGID}" != "${image_main_user_pri_group_id}" ]; then
     log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
 fi
 
+# At this point, the adaptation of UID and primary GID is complete.
+# IMAGE_MAIN_USER has UID HOST_UID and primary GID HOST_UPGID.
+
+# Update home directory ownership to the final UID:GID.
+# Bind-mounted host paths inside the home are intentionally skipped.
+log info "Setting ownership of home directory '${image_main_user_home}' to '${HOST_UID}:${HOST_UPGID}', skipping mounted paths"
+chown_home_without_crossing_mounts "${image_main_user_home}" "${HOST_UID}:${HOST_UPGID}"
+
 # {% if use_host_nvidia_driver %}
 if [ "${USE_HOST_NVIDIA_DRIVER}" = "true" ]; then
     nvidia_gpu_driver_check || exit 1
 fi
 # {% endif %}
 
-run_root_entrypoint_hooks "${ROOT_HOOKS_DIR}"
+# Run root hooks from /etc/entrypoint.d, if any.
+# A hook is an optional project script that runs at a defined point during startup.
+# These hooks run as root after UID/GID adaptation and before the final gosu call.
+root_hooks_dir="/etc/entrypoint.d"
+run_root_entrypoint_hooks "${root_hooks_dir}"
 
-# Update home directory ownership to the final UID:GID, regardless of which code paths
-# above were taken. Bind-mounted host paths inside the home are intentionally skipped.
-log info "Setting ownership of home directory '${image_main_user_home}' to '${HOST_UID}:${HOST_UPGID}', skipping mounted paths"
-chown_home_without_crossing_mounts "${image_main_user_home}" "${HOST_UID}:${HOST_UPGID}"
+# Set XDG_RUNTIME_DIR.
+# XDG_RUNTIME_DIR is a per-user runtime directory for storing non-essential, non-persistent files such as sockets,
+# named pipes, and temporary files.
 
-# Create XDG_RUNTIME_DIR as root before dropping privileges. The directory must
-# be owned by IMAGE_MAIN_USER and have mode 0700 as required by the XDG spec.
-# /run/user/<uid> is the standard path used by systemd-logind on a real system.
-xdg_runtime_dir="/run/user/${HOST_UID}"
-log info "Creating XDG_RUNTIME_DIR '${xdg_runtime_dir}' for user '${IMAGE_MAIN_USER}'"
-mkdir -p "${xdg_runtime_dir}"
-chown "${HOST_UID}:${HOST_UPGID}" "${xdg_runtime_dir}"
-chmod 700 "${xdg_runtime_dir}"
+default_xdg_runtime_dir="/run/user/${HOST_UID}"
+xdg_runtime_dir="${XDG_RUNTIME_DIR:-${default_xdg_runtime_dir}}"
+
+if [ "${xdg_runtime_dir}" != "${default_xdg_runtime_dir}" ]; then
+    log error "XDG_RUNTIME_DIR is '${xdg_runtime_dir}', different from '${default_xdg_runtime_dir}'"
+    handle_error 1 "XDG_RUNTIME_DIR must be '${default_xdg_runtime_dir}'"
+fi
+
+# XDG_RUNTIME_DIR is runtime-only, not a persistent XDG base directory.
+# It must be private to the final user.
+if [ ! -d "${xdg_runtime_dir}" ]; then
+    log info "Creating directory '${xdg_runtime_dir}'"
+    install --directory --mode 700 --owner "${HOST_UID}" --group "${HOST_UPGID}" "${xdg_runtime_dir}" || handle_error 1 "Failed to create directory '${xdg_runtime_dir}'"
+else
+    log info "Directory '${xdg_runtime_dir}' already exists"
+    chown -h "${HOST_UID}:${HOST_UPGID}" "${xdg_runtime_dir}" || handle_error 1 "Failed to set ownership of directory '${xdg_runtime_dir}'"
+    chmod 700 "${xdg_runtime_dir}" || handle_error 1 "Failed to set mode '700' on directory '${xdg_runtime_dir}'"
+fi
 
 # gosu switches to IMAGE_MAIN_USER. HOME, USER, LOGNAME and SHELL are set explicitly
 # because gosu performs setuid/setgid + exec but does not initialize the user environment.
-# Without them, HOME would remain /root and .bashrc.user would never be sourced.
+# Without them, HOME would remain /root and .bashrc_user would never be sourced.
 exec gosu "${IMAGE_MAIN_USER}" env \
     HOME="${image_main_user_home}" \
     USER="${IMAGE_MAIN_USER}" \
     LOGNAME="${IMAGE_MAIN_USER}" \
     SHELL="${image_main_user_shell}" \
     XDG_RUNTIME_DIR="${xdg_runtime_dir}" \
+    "${image_main_user_home}/.entrypoint_user.sh" \
     "$@"

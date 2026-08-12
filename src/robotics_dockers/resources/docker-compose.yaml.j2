@@ -46,11 +46,14 @@ services:
               capabilities: [gpu]
     {% endif %}
 
+    tmpfs:
+      - /run/user/${HOST_UID:?HOST_UID must be set}:mode=700,uid=${HOST_UID:?HOST_UID must be set},gid=${HOST_UPGID:?HOST_UPGID must be set}
+
     volumes:
       # +------------------+
       # | Project mappings |
       # +------------------+
-      # - ${WORKSPACE:?Set WORKSPACE to the path of your workspace on the host}:{{ img_workspace_dir }}
+      - ${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}:{{ img_workspace_dir }}
 
       # +------------------+
       # | Dataset mappings |
@@ -65,8 +68,8 @@ services:
       #
       #   scripts/install-docker-gui-support.sh
       - type: bind
-        source: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}/docker-xwayland.xauth"
-        target: /tmp/docker-xwayland.xauth
+        source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"
+        target: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
         read_only: true
         bind:
           create_host_path: false
@@ -119,7 +122,9 @@ services:
     environment:
       # Use the host XWayland display and the Xauthority file mounted above.
       DISPLAY: "${DISPLAY:?DISPLAY must be set}"
-      XAUTHORITY: "/tmp/docker-xwayland.xauth"
+      XDG_RUNTIME_DIR: "/run/user/${HOST_UID:?HOST_UID must be set}"
+      XAUTHORITY: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
+      CONTAINER_ROS_WORKSPACE: "{{ img_workspace_dir }}"
 
       # Force Qt applications such as RViz and Gazebo to use X11 through
       # XWayland instead of attempting a native Wayland connection.

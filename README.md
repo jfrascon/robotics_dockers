@@ -357,13 +357,15 @@ If the file contains only comments or blank lines, the Rust toolchain is
 
 ### Startup scripts (entrypoint.d)
 
-When the container starts, `/usr/local/bin/entrypoint.sh` first handles the built-in startup work: it adapts the internal user UID/GID to match `HOST_UID`/`HOST_UPGID`, checks NVIDIA driver access when `--nvidia` was used, runs optional project hooks, fixes ownership of the image-owned home directory, and finally calls `gosu` to start the development user session.
+When the container starts, `/usr/local/bin/entrypoint.sh` first handles the built-in startup work: it adapts the internal user UID/GID to match `HOST_UID`/`HOST_UPGID`, fixes ownership of the image-owned home directory, checks NVIDIA driver access when `--nvidia` was used, runs optional project hooks, prepares `XDG_RUNTIME_DIR`, and finally calls `gosu` to start the development user session through the user entrypoint. The user entrypoint prepares the persistent XDG directories and executes the requested command.
 
 A hook is a script that a project places in a known directory so the entrypoint runs it at a defined point during startup. In this project, `/etc/entrypoint.d/` contains optional **root hooks**: scripts provided by the generated project, executed as `root`, after UID/GID adaptation and before the final `gosu` call.
 
 Root hooks run in alphabetical order. Files ending in `.sh` are executed with `bash`; they are not sourced. Files ending in `.txt` are printed to stdout. Because `.sh` hooks run as separate processes, variables exported by those scripts do not leak into the final user session. If a hook needs to pass information forward, write it to a file in a path that the later process can read.
 
-Root hooks run before the final home ownership normalization. Files created under the image-owned home can be reassigned to `HOST_UID:HOST_UPGID`; files created inside bind mounts are not corrected automatically.
+Root hooks run after home ownership normalization. Files created by root hooks under the image-owned home must set their own ownership if they need to be writable by the final user. Files created inside bind mounts are not corrected automatically.
+
+Do not bind mount `IMAGE_MAIN_USER`'s home directory itself. Mount project directories inside the home instead, for example the workspace. The entrypoint installs runtime files in the image-owned home and aborts if that home directory is a mount point.
 
 The entrypoint requires the following preconditions. If they are not met, the container aborts with a clear error message:
 
@@ -373,7 +375,9 @@ The entrypoint requires the following preconditions. If they are not met, the co
 | `HOST_UID`             | Must exist, be non-empty, and be an integer greater than 1000  |
 | `HOST_UPGID`           | Must exist, be non-empty, and be an integer greater than 1000  |
 
-When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start the development user session.
+When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start `${HOME}/.entrypoint_user.sh`, which prepares the user environment and executes the requested command.
+
+Before the final `gosu` call, the root entrypoint prepares `XDG_RUNTIME_DIR`, which defaults to `/run/user/<HOST_UID>` and must be private to the final user. If `XDG_RUNTIME_DIR` is provided, it must match that default path. The shared user environment then ensures the default persistent XDG directories exist under the user's home with mode `755`: `.cache`, `.config`, `.local/share`, and `.local/state`. It uses `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` if they were provided by Docker; otherwise it defaults to those home directories. If one of these variables points outside the home, the user environment leaves it unchanged and prints a warning.
 
 The typical setup is `user: root` in docker-compose with `HOST_UID=$(id -u)` and `HOST_UPGID=$(id -g)` provided via a `.env` file or environment variables.
 
@@ -494,15 +498,20 @@ rosbuild --packages-select my_pkg --no-symlink-install --mixin debug
 
 ### Running the container
 
-The output directory contains a `docker-compose-dev.yaml`. Copy it next to your workspace and create a `.env` file with the required variables:
+The output directory contains a `docker-compose-dev.yaml`. Copy it next to your workspace and create a `.env` file with the variables required by the default mounts and devices. `HOST_XAUTHORITY_FILE` is required by the default GUI/XAuthority configuration; remove the XAuth bind mount and `XAUTHORITY` environment variable if you intentionally use another GUI authorization method.
 
 ```bash
 # .env
 HOST_UID=1000          # your UID: id -u
 HOST_UPGID=1000        # your primary GID: id -g
-WORKSPACE=/home/myuser/my_workspace   # path to your workspace on the host
+HOST_ROS_WORKSPACE=/home/myuser/my_workspace   # host path mounted as the ROS workspace
+HOST_XAUTHORITY_FILE=/run/user/<your-uid>/docker-xwayland.xauth   # host-side XAuthority file
 RENDER_GID=992         # GID of the render device group: stat -c %g /dev/dri/renderD128
 ```
+
+The generated Compose file maps `HOST_ROS_WORKSPACE` to the container path exposed as `CONTAINER_ROS_WORKSPACE`. The user shell setup uses `CONTAINER_ROS_WORKSPACE` to find the workspace overlay at `install/setup.bash`.
+
+If you use the GUI helper installed by `scripts/install-docker-gui-support.sh`, `HOST_XAUTHORITY_FILE` normally points to `${XDG_RUNTIME_DIR}/docker-xwayland.xauth` on the host.
 
 Then:
 
@@ -600,9 +609,11 @@ The service regenerates the authentication file automatically whenever a new gra
 
 The generated `docker-compose-dev.yaml` is already configured for this authentication method. It:
 
-- mounts `${XDG_RUNTIME_DIR}/docker-xwayland.xauth` read-only;
+- mounts `${HOST_XAUTHORITY_FILE}` read-only inside the container runtime directory;
 - mounts `/tmp/.X11-unix` read-only;
 - forwards `DISPLAY`;
+- sets `XDG_RUNTIME_DIR` to `/run/user/<HOST_UID>` inside the container;
+- mounts `/run/user/<HOST_UID>` as a `tmpfs` owned by `HOST_UID:HOST_UPGID` with mode `700`;
 - sets `XAUTHORITY` to the mounted file;
 - sets `QT_QPA_PLATFORM=xcb`;
 - sets `QT_X11_NO_MITSHM=1`.
@@ -629,6 +640,8 @@ Check that the Xauthority file exists and contains at least one authentication e
 ls -l "${XDG_RUNTIME_DIR}/docker-xwayland.xauth"
 xauth -f "${XDG_RUNTIME_DIR}/docker-xwayland.xauth" info
 ```
+
+Set `HOST_XAUTHORITY_FILE` to the host-side path of that file before starting the generated Compose service. With the default installer path, use `${XDG_RUNTIME_DIR}/docker-xwayland.xauth`.
 
 The expected service state is:
 
@@ -668,8 +681,8 @@ Remove this bind mount from the rendered Compose file:
 
 ```yaml
 - type: bind
-  source: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}/docker-xwayland.xauth"
-  target: /tmp/docker-xwayland.xauth
+    source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"
+    target: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
   read_only: true
   bind:
     create_host_path: false
@@ -678,7 +691,7 @@ Remove this bind mount from the rendered Compose file:
 Also remove this environment variable:
 
 ```yaml
-XAUTHORITY: "/tmp/docker-xwayland.xauth"
+XAUTHORITY: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
 ```
 
 Keep the X11 socket bind mount:

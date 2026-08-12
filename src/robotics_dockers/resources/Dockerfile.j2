@@ -34,7 +34,9 @@ handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
 
 context_dir="/tmp/context"
 required_context_paths=(
-    .resources/bashrc.user
+    .resources/bashrc_user
+    .resources/entrypoint_user.sh
+    .resources/env.rc
     .resources/install_pkgs
     .resources/install_base_system.sh
 {% if not use_host_nvidia_driver %}
@@ -42,6 +44,7 @@ required_context_paths=(
 {% endif %}
     .resources/install_gh.sh
     .resources/install_ros.sh
+    .resources/ros.rc
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
     .resources/entrypoint.sh
@@ -134,7 +137,7 @@ image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
 image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
 
 # If the '${bashrc_user_line}' does not exist in the .bashrc file of the user, added it.
-bashrc_user_line='[ -f "${HOME}/.bashrc.user" ] && . "${HOME}/.bashrc.user"'
+bashrc_user_line='[ -f "${HOME}/.bashrc_user" ] && . "${HOME}/.bashrc_user"'
 
 # -q, --quiet: Suppress normal output.
 # -x, --line-regexp: Select only those matches that exactly match the whole line.
@@ -148,8 +151,17 @@ else
 fi
 
 # An environment script is installed in the home directory of the '${IMAGE_MAIN_USER}'.
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc.user'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc.user "${IMAGE_MAIN_USER_HOME}/.bashrc.user"
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc_user "${IMAGE_MAIN_USER_HOME}/.bashrc_user"
+
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.entrypoint_user.sh'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/entrypoint_user.sh "${IMAGE_MAIN_USER_HOME}/.entrypoint_user.sh"
+
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.env.rc'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/env.rc "${IMAGE_MAIN_USER_HOME}/.env.rc"
+
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.ros.rc'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/ros.rc "${IMAGE_MAIN_USER_HOME}/.ros.rc"
 
 # Every file and folder in image_main_user_home must belong to the IMAGE_MAIN_USER.
 log "Setting ownership of path '${IMAGE_MAIN_USER_HOME}' to user '${IMAGE_MAIN_USER}' (UID '${image_main_user_id}') and primary group '${image_main_user_pri_group}' (GID '${image_main_user_pri_group_id}')"
@@ -178,10 +190,10 @@ install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mo
 log "Installing file '/usr/local/bin/rosbuild'"
 install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild
 
-# Install .bash_aliases.user if present in context (the user may have removed it between create_docker_files.py and build.py).
-if [ -e /tmp/context/.resources/bash_aliases.user ]; then
-    log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases.user'"
-    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases.user "${IMAGE_MAIN_USER_HOME}/.bash_aliases.user"
+# Install .bash_aliases_user if present in context (the user may have removed it between create_docker_files.py and build.py).
+if [ -e /tmp/context/.resources/bash_aliases_user ]; then
+    log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases_user'"
+    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases_user "${IMAGE_MAIN_USER_HOME}/.bash_aliases_user"
 fi
 
 log "Removing installation residues from apt cache"

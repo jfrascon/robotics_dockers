@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# This file is sourced by .env.rc to set up ROS 2 shell integration.
+
+# --------------------------------------------------------------------------------------------------
+# source_base_ros_setup
+#
+# Sources the base ROS 2 setup with the following priority:
+#   1) ${ROS_DISTRO}/setup.bash if ROS_DISTRO is explicitly set
+#   2) Auto-detect when exactly one distro is found in /opt/ros (sets ROS_DISTRO)
+#
+# Returns 0 on success, 1 when no valid ROS setup could be sourced.
+# Emits a warning instead of exiting so the shell remains usable.
+# --------------------------------------------------------------------------------------------------
+source_base_ros_setup() {
+    local ros_setup_path=""
+    local ros_setup_reason=""
+    local ros_distro_count=0
+    local detected_ros_distro=""
+    local candidate=""
+
+    if [ -n "${ROS_DISTRO}" ]; then
+        if [ -s "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
+            ros_setup_path="/opt/ros/${ROS_DISTRO}/setup.bash"
+        else
+            ros_setup_reason="ROS_DISTRO is set to '${ROS_DISTRO}' but setup.bash was not found"
+        fi
+    elif [ -d "/opt/ros" ]; then
+        for candidate in /opt/ros/*; do
+            [ -d "${candidate}" ] || continue
+            [ -s "${candidate}/setup.bash" ] || continue
+            ros_distro_count=$((ros_distro_count + 1))
+            detected_ros_distro="$(basename "${candidate}")"
+        done
+
+        if [ "${ros_distro_count}" -eq 1 ]; then
+            export ROS_DISTRO="${detected_ros_distro}"
+            ros_setup_path="/opt/ros/${ROS_DISTRO}/setup.bash"
+            echo "Info: ROS_DISTRO unset; auto-selected '${ROS_DISTRO}' from /opt/ros" >&2
+        elif [ "${ros_distro_count}" -gt 1 ]; then
+            ros_setup_reason="ROS_DISTRO unset and multiple ROS distros found in /opt/ros"
+        fi
+    fi
+
+    if [ -n "${ros_setup_path}" ]; then
+        # shellcheck disable=SC1090
+        if . "${ros_setup_path}"; then
+            return 0
+        fi
+        echo "Warning: failed to source ${ros_setup_path}; continuing without ROS environment" >&2
+        return 1
+    fi
+
+    echo "Warning: no ROS setup loaded (${ros_setup_reason:-no valid setup found}); continuing without ROS environment" >&2
+    return 1
+}
+
+# ROS bootstrap: prefer workspace overlay, fall back to base ROS setup.
+if [ -z "${CONTAINER_ROS_WORKSPACE:-}" ]; then
+    echo "Warning: CONTAINER_ROS_WORKSPACE is not set; falling back to base ROS setup" >&2
+    source_base_ros_setup
+else
+    if [ -s "${CONTAINER_ROS_WORKSPACE}/install/setup.bash" ]; then
+        # shellcheck disable=SC1091
+        if ! . "${CONTAINER_ROS_WORKSPACE}/install/setup.bash"; then
+            echo "Warning: failed to source workspace overlay; falling back to base ROS setup" >&2
+            source_base_ros_setup
+        fi
+    else
+        source_base_ros_setup
+    fi
+fi
+
+# Optional ROS tooling hooks.
+# shellcheck disable=SC1091
+[ -s /usr/share/gazebo/setup.sh ] && . /usr/share/gazebo/setup.sh
+
+# shellcheck disable=SC1091
+[ -s /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ] && . /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash
+
+# shellcheck disable=SC1091
+[ -s /usr/share/colcon_cd/function/colcon_cd.sh ] && . /usr/share/colcon_cd/function/colcon_cd.sh
+
+return 0
