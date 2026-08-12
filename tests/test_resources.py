@@ -103,6 +103,7 @@ def test_env_rc_sources_ros_rc_once() -> None:
     assert 'export ROBOTICS_DOCKERS_ENV_LOADED=1' in env_rc
     assert 'export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${HOME}/.cache}"' in env_rc
     assert 'ensure_default_user_dir "${HOME}/.cache"' in env_rc
+    assert 'ensure_default_user_dir "${HOME}/.local/bin"' in env_rc
     assert 'chmod 755 "${dir}"' in env_rc
     assert 'warn_if_xdg_outside_home XDG_CACHE_HOME "${XDG_CACHE_HOME}"' in env_rc
     assert '[[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]' in env_rc
