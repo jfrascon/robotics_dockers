@@ -83,7 +83,10 @@ script_name="$(basename "${script}")"
 ROS_DISTRO="${1}"
 [ -z "${ROS_DISTRO}" ] && handle_error 1 "No ROS_DISTRO provided. Usage: ${script_name} <ros_distro>"
 
-version_codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"
+# shellcheck disable=SC1091
+. /etc/os-release
+# shellcheck disable=SC2153
+version_codename="${VERSION_CODENAME}"
 
 # --------------------------------------------------------------------------------------------------
 # Check for existing ROS installation.
@@ -120,15 +123,15 @@ packages=(
     python3-mypy-extensions
     python3-rosdep
     python3-vcstool
-    ros-${ROS_DISTRO}-ros-base
-    ros-${ROS_DISTRO}-rmw-cyclonedds-cpp
-    ros-${ROS_DISTRO}-rmw-fastrtps-cpp
-    ros-${ROS_DISTRO}-rmw-fastrtps-dynamic-cpp
-    ros-${ROS_DISTRO}-rqt
-    ros-${ROS_DISTRO}-rqt-common-plugins
-    ros-${ROS_DISTRO}-rqt-tf-tree
-    ros-${ROS_DISTRO}-rviz2
-    ros-${ROS_DISTRO}-xacro
+    "ros-${ROS_DISTRO}-ros-base"
+    "ros-${ROS_DISTRO}-rmw-cyclonedds-cpp"
+    "ros-${ROS_DISTRO}-rmw-fastrtps-cpp"
+    "ros-${ROS_DISTRO}-rmw-fastrtps-dynamic-cpp"
+    "ros-${ROS_DISTRO}-rqt"
+    "ros-${ROS_DISTRO}-rqt-common-plugins"
+    "ros-${ROS_DISTRO}-rqt-tf-tree"
+    "ros-${ROS_DISTRO}-rviz2"
+    "ros-${ROS_DISTRO}-xacro"
     ros-dev-tools
 )
 

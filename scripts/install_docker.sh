@@ -42,6 +42,7 @@ sudo chmod 644 "${gpg_file}" || handle_error 1 "Failed to set permissions on '${
 sudo chown root:root "${gpg_file}" || handle_error 1 "Failed to set owner on '${gpg_file}'"
 
 # Get relevant environment variables, including VERSION_CODENAME.
+# shellcheck disable=SC1091
 . /etc/os-release || handle_error 1 "Failed to read '/etc/os-release'"
 
 url="https://download.docker.com/linux/ubuntu"
