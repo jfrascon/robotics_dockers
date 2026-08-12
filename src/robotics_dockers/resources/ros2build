@@ -39,8 +39,9 @@ default_cxx_flags="-Wall -Wextra -Wpedantic -Wnon-virtual-dtor -Woverloaded-virt
 
 # Parse arguments.
 i=0
-while [[ $i -lt $# ]]; do
-    arg="${@:$((i + 1)):1}"
+while [ "${i}" -lt "$#" ]; do
+    arg_index=$((i + 1))
+    arg="${!arg_index}"
 
     case "${arg}" in
     --no-merge-install)
@@ -73,8 +74,9 @@ while [[ $i -lt $# ]]; do
         j=$((i + 1))
         # Collect all cmake arguments until the next flag (starting with --).
         # Also detect if user manually sets CMAKE_CXX_FLAGS to avoid injecting defaults.
-        while [[ $j -lt $# ]]; do
-            next_arg="${@:$((j + 1)):1}"
+        while [ "${j}" -lt "$#" ]; do
+            next_arg_index=$((j + 1))
+            next_arg="${!next_arg_index}"
             if [[ ${next_arg} == --* ]]; then
                 break
             fi
@@ -99,16 +101,17 @@ while [[ $i -lt $# ]]; do
         j=$((i + 1))
         # Collect all mixin values following --mixin (until the next flag).
         # Also decide whether to skip default mixins based on user input.
-        while [[ $j -lt $# ]]; do
-            next_arg="${@:$((j + 1)):1}"
+        while [ "${j}" -lt "$#" ]; do
+            next_arg_index=$((j + 1))
+            next_arg="${!next_arg_index}"
             if [[ ${next_arg} == --* ]]; then
                 break
             fi
             mixin_args+=("${next_arg}")
             args+=("${next_arg}")
-            if [[ ${next_arg} == "debug" || ${next_arg} == "rel-with-deb-info" ]]; then
+            if [ "${next_arg}" = "debug" ] || [ "${next_arg}" = "rel-with-deb-info" ]; then
                 add_default_release_mixin=false
-            elif [[ ${next_arg} == "compile-commands" ]]; then
+            elif [ "${next_arg}" = "compile-commands" ]; then
                 add_default_compile_commands=false
             fi
             j=$((j + 1))

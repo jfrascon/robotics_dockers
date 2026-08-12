@@ -187,7 +187,7 @@ print_banner() {
     local border_char="${3:--}" # default to '-' if not provided
 
     # Validate that fd is either 1 (stdout) or 2 (stderr)
-    if [[ ${fd} != "1" && ${fd} != "2" ]]; then
+    if [ "${fd}" != "1" ] && [ "${fd}" != "2" ]; then
         fd=1
     fi
 
@@ -235,7 +235,7 @@ nvidia_gpu_driver_check() {
     fi
 
     # If either condition is false, GPU functionality will not be usable.
-    if [[ -z ${libcuda_found} || ${driver_found} != "true" ]]; then
+    if [ -z "${libcuda_found}" ] || [ "${driver_found}" != "true" ]; then
         echo >&2
         echo "ERROR: The NVIDIA Driver was not detected. GPU functionality will not be available." >&2
         echo "   Use the NVIDIA Container Toolkit to start this container with GPU support; see" >&2
