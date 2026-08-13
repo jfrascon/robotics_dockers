@@ -136,6 +136,22 @@ def test_generate_docker_context_installs_mesa_only_without_nvidia(tmp_path: Pat
     assert 'install_mesa_packages.sh' not in nvidia_dockerfile
 
 
+def test_generate_docker_context_sets_ros_discovery_environment_by_distro(tmp_path: Path) -> None:
+    humble_dir = tmp_path / 'humble'
+    jazzy_dir = tmp_path / 'jazzy'
+
+    generate_docker_context(DockerContextConfig('developer', 'humble', 'local/ros-humble:latest', humble_dir))
+    generate_docker_context(DockerContextConfig('developer', 'jazzy', 'local/ros-jazzy:latest', jazzy_dir))
+
+    humble_dockerfile = humble_dir.joinpath('Dockerfile').read_text()
+    jazzy_dockerfile = jazzy_dir.joinpath('Dockerfile').read_text()
+
+    assert 'ROS_LOCALHOST_ONLY="1"' in humble_dockerfile
+    assert 'ROS_AUTOMATIC_DISCOVERY_RANGE=' not in humble_dockerfile
+    assert 'ROS_AUTOMATIC_DISCOVERY_RANGE="LOCALHOST"' in jazzy_dockerfile
+    assert 'ROS_LOCALHOST_ONLY=' not in jazzy_dockerfile
+
+
 def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path: Path) -> None:
     result = generate_docker_context(
         DockerContextConfig(

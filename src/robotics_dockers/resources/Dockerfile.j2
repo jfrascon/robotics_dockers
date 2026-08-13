@@ -249,11 +249,7 @@ ENV TZ="Etc/UTC" \
     RCUTILS_LOGGING_BUFFERED_STREAM="1" \
     RCUTILS_CONSOLE_OUTPUT_FORMAT="[{severity}] {time} {name}: {message}" \
     ROS_DOMAIN_ID="0" \
-{% if ros_distro == "humble" %}
-    ROS_LOCALHOST_ONLY="1" \
-{% else %}
-    ROS_AUTOMATIC_DISCOVERY_RANGE="LOCALHOST" \
-{% endif %}
+    {{ ros_discovery_env_name }}={{ ros_discovery_env_value | tojson }} \
     RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
 
 USER "${IMAGE_MAIN_USER}"

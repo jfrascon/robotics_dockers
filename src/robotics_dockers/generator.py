@@ -29,6 +29,13 @@ def generate_docker_context(config: DockerContextConfig) -> DockerContextResult:
 def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, ResourceSpec]:
     image_main_user_home = f'/home/{config.image_main_user}'
 
+    if config.ros_distro == 'humble':
+        ros_discovery_env_name = 'ROS_LOCALHOST_ONLY'
+        ros_discovery_env_value = '1'
+    else:
+        ros_discovery_env_name = 'ROS_AUTOMATIC_DISCOVERY_RANGE'
+        ros_discovery_env_value = 'LOCALHOST'
+
     items_to_install: dict[str, ResourceSpec] = {
         'Dockerfile': [
             'Dockerfile.j2',
@@ -37,6 +44,8 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
                 'image_main_user': config.image_main_user,
                 'image_main_user_home': image_main_user_home,
                 'ros_distro': config.ros_distro,
+                'ros_discovery_env_name': ros_discovery_env_name,
+                'ros_discovery_env_value': ros_discovery_env_value,
                 'use_host_nvidia_driver': config.use_host_nvidia_driver,
                 'meta_title': config.meta_title,
                 'meta_desc': config.meta_desc,
