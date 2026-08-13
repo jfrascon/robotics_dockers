@@ -29,7 +29,24 @@
 
 # Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
 
-LOG_FILE="/tmp/log.log"
+LOG_DIR="/run/robotics-dockers"
+LOG_FILE="${LOG_DIR}/entrypoint.log"
+
+install --directory --mode 700 --owner root --group root "${LOG_DIR}" || {
+    echo "Error: failed to create entrypoint log directory '${LOG_DIR}'" >&2
+    exit 1
+}
+
+truncate --size 0 "${LOG_FILE}" || {
+    echo "Error: failed to initialize entrypoint log file '${LOG_FILE}'" >&2
+    exit 1
+}
+
+chmod 600 "${LOG_FILE}" || {
+    echo "Error: failed to set mode 600 on entrypoint log file '${LOG_FILE}'" >&2
+    exit 1
+}
+
 REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than or equal to 1000"
 
 # Update the ownership of the image user's home directory without entering bind mounts.
