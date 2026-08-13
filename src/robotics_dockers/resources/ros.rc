@@ -13,71 +13,99 @@
 # --------------------------------------------------------------------------------------------------
 source_base_ros_setup() {
     local ros_setup_path=""
-    local ros_setup_reason=""
     local ros_distro_count=0
     local detected_ros_distro=""
     local candidate=""
 
-    if [ -n "${ROS_DISTRO}" ]; then
-        if [ -s "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
-            ros_setup_path="/opt/ros/${ROS_DISTRO}/setup.bash"
-        else
-            ros_setup_reason="ROS_DISTRO is set to '${ROS_DISTRO}' but setup.bash was not found"
+    if [ -n "${ROS_DISTRO:-}" ]; then
+        ros_setup_path="/opt/ros/${ROS_DISTRO}/setup.bash"
+
+        if [ ! -s "${ros_setup_path}" ]; then
+            echo "Warning: no ROS setup loaded (ROS_DISTRO is set to '${ROS_DISTRO}' but setup.bash was not found); continuing without ROS environment" >&2
+            return 1
         fi
-    elif [ -d "/opt/ros" ]; then
+    else
         for candidate in /opt/ros/*; do
-            [ -d "${candidate}" ] || continue
-            [ -s "${candidate}/setup.bash" ] || continue
+            if [ ! -s "${candidate}/setup.bash" ]; then
+                continue
+            fi
+
             ros_distro_count=$((ros_distro_count + 1))
-            detected_ros_distro="$(basename "${candidate}")"
+            detected_ros_distro="${candidate##*/}"
         done
 
-        if [ "${ros_distro_count}" -eq 1 ]; then
+        case "${ros_distro_count}" in
+        0)
+            echo "Warning: no ROS setup loaded (no valid setup found); continuing without ROS environment" >&2
+            return 1
+            ;;
+        1)
             export ROS_DISTRO="${detected_ros_distro}"
             ros_setup_path="/opt/ros/${ROS_DISTRO}/setup.bash"
             echo "Info: ROS_DISTRO unset; auto-selected '${ROS_DISTRO}' from /opt/ros" >&2
-        elif [ "${ros_distro_count}" -gt 1 ]; then
-            ros_setup_reason="ROS_DISTRO unset and multiple ROS distros found in /opt/ros"
-        fi
+            ;;
+        *)
+            echo "Warning: no ROS setup loaded (ROS_DISTRO unset and multiple ROS distros found in /opt/ros); continuing without ROS environment" >&2
+            return 1
+            ;;
+        esac
     fi
 
-    if [ -n "${ros_setup_path}" ]; then
-        # shellcheck disable=SC1090
-        if . "${ros_setup_path}"; then
-            return 0
-        fi
-        echo "Warning: failed to source ${ros_setup_path}; continuing without ROS environment" >&2
-        return 1
+    # shellcheck disable=SC1090
+    if . "${ros_setup_path}"; then
+        return 0
     fi
 
-    echo "Warning: no ROS setup loaded (${ros_setup_reason:-no valid setup found}); continuing without ROS environment" >&2
+    echo "Warning: failed to source ${ros_setup_path}; continuing without ROS environment" >&2
     return 1
 }
 
-# ROS bootstrap: prefer workspace overlay, fall back to base ROS setup.
-if [ -z "${CONTAINER_ROS_WORKSPACE:-}" ]; then
-    echo "Warning: CONTAINER_ROS_WORKSPACE is not set; falling back to base ROS setup" >&2
-    source_base_ros_setup
-else
-    if [ -s "${CONTAINER_ROS_WORKSPACE}/install/setup.bash" ]; then
-        # shellcheck disable=SC1091
-        if ! . "${CONTAINER_ROS_WORKSPACE}/install/setup.bash"; then
-            echo "Warning: failed to source workspace overlay; falling back to base ROS setup" >&2
-            source_base_ros_setup
-        fi
-    else
+# --------------------------------------------------------------------------------------------------
+# source_ros_setup
+#
+# Sources the workspace overlay when available. If the workspace is not configured, its setup file
+# is missing, or sourcing it fails, falls back to the base ROS 2 setup.
+# --------------------------------------------------------------------------------------------------
+source_ros_setup() {
+    local workspace_setup_path=""
+
+    if [ -z "${CONTAINER_ROS_WORKSPACE:-}" ]; then
+        echo "Warning: CONTAINER_ROS_WORKSPACE is not set; falling back to base ROS setup" >&2
         source_base_ros_setup
+        return
     fi
-fi
+
+    workspace_setup_path="${CONTAINER_ROS_WORKSPACE}/install/setup.bash"
+
+    if [ ! -s "${workspace_setup_path}" ]; then
+        echo "Warning: workspace setup not found at ${workspace_setup_path}; falling back to base ROS setup" >&2
+        source_base_ros_setup
+        return
+    fi
+
+    # shellcheck disable=SC1090
+    if . "${workspace_setup_path}"; then
+        return 0
+    fi
+
+    echo "Warning: failed to source workspace overlay; falling back to base ROS setup" >&2
+    source_base_ros_setup
+}
+
+source_ros_setup
 
 # Optional ROS tooling hooks.
-# shellcheck disable=SC1091
-[ -s /usr/share/gazebo/setup.sh ] && . /usr/share/gazebo/setup.sh
+if [ -s /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ]; then
+    # shellcheck disable=SC1091
+    . /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash
+fi
 
-# shellcheck disable=SC1091
-[ -s /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash ] && . /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash
+if [ -s /usr/share/colcon_cd/function/colcon_cd.sh ]; then
+    # shellcheck disable=SC1091
+    . /usr/share/colcon_cd/function/colcon_cd.sh
+fi
 
-# shellcheck disable=SC1091
-[ -s /usr/share/colcon_cd/function/colcon_cd.sh ] && . /usr/share/colcon_cd/function/colcon_cd.sh
+unset -f source_ros_setup
+unset -f source_base_ros_setup
 
 return 0
