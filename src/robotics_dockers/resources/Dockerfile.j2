@@ -85,10 +85,29 @@ EOF
 # Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
 COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
 
+# The next RUN consumes .resources through a bind mount.
+# Bind-mounted files are visible during the RUN, but they are not copied into the image, so their
+# contents do not participate in Docker's cache key the way COPY inputs do.
+# If build.py is run with --cache, Docker could otherwise reuse this layer even after a mounted
+# resource script changed.
+# build.py prevents that by hashing the names and contents of .resources and passing the result as
+# RESOURCES_CHECKSUM.
+# Docker also computes a separate cache key for each instruction.
+# Declaring ARG RESOURCES_CHECKSUM only exposes the resource checksum to this Dockerfile;
+# the RUN below must reference it so Docker folds that value into this RUN's cache key.
+# When a resource changes, RESOURCES_CHECKSUM changes, Docker's RUN cache key changes, and this
+# layer is rebuilt while keeping .resources bind-mounted instead of copied into the image.
+ARG RESOURCES_CHECKSUM
 RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
     --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
 log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
 handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
+
+if [ -z "${RESOURCES_CHECKSUM}" ]; then
+    handle_error 1 "RESOURCES_CHECKSUM build argument is required"
+fi
+
+log "Resources checksum: ${RESOURCES_CHECKSUM}"
 
 install --owner root --group root --mode 755 /tmp/context/.resources/install_pkgs /usr/local/bin/install_pkgs || \
     handle_error 1 "Failed to install 'install_pkgs'"

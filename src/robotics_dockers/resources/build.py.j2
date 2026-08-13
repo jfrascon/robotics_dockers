@@ -2,6 +2,7 @@
 
 import argparse
 import getpass
+import hashlib
 import os
 import re
 {% if rosdep_packages_dir_mode == 'cli' %}
@@ -63,6 +64,25 @@ if __name__ == '__main__':
         cmd: list[str], capture: bool = False, check: bool = True, cwd: Path | None = None
     ) -> subprocess.CompletedProcess:
         return subprocess.run(cmd, check=check, text=True, capture_output=capture, cwd=cwd)
+
+    def compute_directory_checksum(path: Path) -> str:
+        """
+        Return a deterministic checksum for all files under path.
+
+        The digest includes each file's relative path and contents, sorted by path.
+        It does not include metadata such as modification time, ownership, permissions, or empty
+        directories.
+        """
+        digest = hashlib.sha256()
+
+        for file_path in sorted(item for item in path.rglob('*') if item.is_file()):
+            relative_path = file_path.relative_to(path).as_posix()
+            digest.update(relative_path.encode())
+            digest.update(b'\0')
+            digest.update(file_path.read_bytes())
+            digest.update(b'\0')
+
+        return digest.hexdigest()
 
     # ----------------------------------------------------------------------------------------------
     # Main execution block
@@ -158,10 +178,22 @@ if __name__ == '__main__':
 
     context_dir = this_file.parent
     dockerfile = context_dir.joinpath('Dockerfile')
+    resources_dir = context_dir.joinpath('.resources')
 
     if not dockerfile.is_file():
         print(f"Error: File '{str(dockerfile)}' is required")
         sys.exit(1)
+
+    if not resources_dir.is_dir():
+        print(f"Error: Directory '{str(resources_dir)}' is required")
+        sys.exit(1)
+
+    # Docker does not automatically notice changes in files that are only bind-mounted during a RUN step.
+    # We pass a checksum of .resources to the Dockerfile.
+    # Changing any resource file changes the build argument.
+    # Changing the build argument forces that RUN layer to rebuild when --cache is used.
+    # See the RESOURCES_CHECKSUM comment in the Dockerfile for the full cache explanation.
+    resources_checksum = compute_directory_checksum(resources_dir)
 
     # We want to use volume mount during build, which will look like this:
     # RUN --mount=type=bind,source=...,target=... && <command>
@@ -203,6 +235,7 @@ if __name__ == '__main__':
         cmd += ['--label', f'{k}={v}']
 
     cmd.extend(['--tag', img_id_to_build])
+    cmd.extend(['--build-arg', f'RESOURCES_CHECKSUM={resources_checksum}'])
 
     # Always declare a 'pkgs' build context so the Dockerfile mount is always valid.
 {% if rosdep_packages_dir_mode == 'cli' %}
@@ -248,6 +281,7 @@ if __name__ == '__main__':
         f'Building the Docker image "{img_id_to_build}" using the base image "{base_img}", '
         f'with active user "{image_main_user}" and "ROS 2 {{ ros_distro }}"'
     )
+    print(f'Resources checksum: {resources_checksum}')
     print('Executing command:')
     print(' '.join(cmd))
 

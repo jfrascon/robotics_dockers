@@ -1,4 +1,8 @@
+import hashlib
+import json
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +15,19 @@ from robotics_dockers.errors import (
     InvalidRosdepPackagesDirError,
     InvalidRosDistroError,
 )
+
+
+def _compute_directory_checksum(path: Path) -> str:
+    digest = hashlib.sha256()
+
+    for file_path in sorted(item for item in path.rglob('*') if item.is_file()):
+        relative_path = file_path.relative_to(path).as_posix()
+        digest.update(relative_path.encode())
+        digest.update(b'\0')
+        digest.update(file_path.read_bytes())
+        digest.update(b'\0')
+
+    return digest.hexdigest()
 
 
 def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
@@ -93,6 +110,50 @@ def test_generate_docker_context_uses_rosdep_skip_keys_file(tmp_path: Path) -> N
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
     assert '.resources/rosdep_skip_keys.txt' in dockerfile
     assert 'skip_rosdep_keys /tmp/context/.resources/rosdep_skip_keys.txt' in dockerfile
+
+
+def test_generated_build_script_passes_resources_checksum_to_docker(tmp_path: Path) -> None:
+    result = generate_docker_context(
+        DockerContextConfig(
+            image_main_user='developer', ros_distro='jazzy', img_id='local/ros-test:latest', output_dir=tmp_path
+        )
+    )
+
+    args_file = tmp_path / 'docker_args.json'
+    fake_bin_dir = tmp_path / 'fake-bin'
+    fake_bin_dir.mkdir()
+    fake_docker = fake_bin_dir / 'docker'
+    fake_docker.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+
+with open(os.environ['DOCKER_ARGS_FILE'], 'w', encoding='utf-8') as args_file:
+    json.dump(sys.argv[1:], args_file)
+"""
+    )
+    fake_docker.chmod(0o775)
+
+    expected_checksum = _compute_directory_checksum(result.context_dir / '.resources')
+    env = os.environ.copy()
+    env['DOCKER_ARGS_FILE'] = str(args_file)
+    env['PATH'] = f'{fake_bin_dir}:{env["PATH"]}'
+
+    completed_process = subprocess.run(
+        [str(result.context_dir / 'build.py'), '--cache'],
+        cwd=result.context_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed_process.returncode == 0, completed_process.stdout + completed_process.stderr
+    docker_args = json.loads(args_file.read_text())
+    build_arg_index = docker_args.index('--build-arg')
+    assert docker_args[build_arg_index + 1] == f'RESOURCES_CHECKSUM={expected_checksum}'
+    assert f'Resources checksum: {expected_checksum}' in completed_process.stdout
 
 
 def test_generate_docker_context_keeps_apt_packages_template_comments(tmp_path: Path) -> None:
