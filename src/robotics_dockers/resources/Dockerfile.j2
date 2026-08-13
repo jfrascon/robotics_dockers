@@ -82,14 +82,11 @@ APT::Install-Recommends "false";
 APT::Install-Suggests "false";
 EOF
 
-# Install skip_rosdep_keys globally so it can be called from extra.d/apt_packages.sh.
-COPY --chmod=755 .resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys
-
 # The next RUN consumes .resources through a bind mount.
 # Bind-mounted files are visible during the RUN, but they are not copied into the image, so their
 # contents do not participate in Docker's cache key the way COPY inputs do.
 # If build.py is run with --cache, Docker could otherwise reuse this layer even after a mounted
-# resource script changed.
+# resource file changed.
 # build.py prevents that by hashing the names and contents of .resources and passing the result as
 # RESOURCES_CHECKSUM.
 # Docker also computes a separate cache key for each instruction.
@@ -111,6 +108,9 @@ log "Resources checksum: ${RESOURCES_CHECKSUM}"
 
 install --owner root --group root --mode 755 /tmp/context/.resources/install_pkgs /usr/local/bin/install_pkgs || \
     handle_error 1 "Failed to install 'install_pkgs'"
+
+install --owner root --group root --mode 755 /tmp/context/.resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys || \
+    handle_error 1 "Failed to install 'skip_rosdep_keys'"
 
 bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
     handle_error 1 "Failed to run 'install_base_system.sh'"
@@ -196,10 +196,11 @@ else
 fi
 
 # An environment script is installed in the home directory of the '${IMAGE_MAIN_USER}'.
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
 image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
 image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
 [ -z "${image_main_user_pri_group}" ] && handle_error 1 "Primary group '${image_main_user_pri_group_id}' for user '${IMAGE_MAIN_USER}' not found"
+
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
 install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc_user "${IMAGE_MAIN_USER_HOME}/.bashrc_user" || \
     handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
 
