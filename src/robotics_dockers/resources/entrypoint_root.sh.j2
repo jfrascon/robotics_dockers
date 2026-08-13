@@ -30,7 +30,7 @@
 # Variables HOST_UID and HOST_UPGID are defined in CLI or docker-compose.yml file.
 
 LOG_FILE="/tmp/log.log"
-REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than 1000"
+REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than or equal to 1000"
 
 # Update the ownership of the image user's home directory without entering bind mounts.
 # The home directory may contain paths mounted from the host, for example the workspace, .gitconfig,
@@ -305,7 +305,7 @@ log info "Executing script '${script}' with user '${current_user}' (UID '${curre
 #
 # This image requires:
 #   1. The container must start as root (UID 0).
-#   2. HOST_UID and HOST_UPGID must exist, be non-empty integers > 1000.
+#   2. HOST_UID and HOST_UPGID must exist, be non-empty integers >= 1000.
 #
 # These are the contract this image imposes on the caller. Any other
 # combination is a misconfiguration and fails with a clear message.
@@ -314,12 +314,12 @@ if [ "${current_user_id}" -ne 0 ]; then
     handle_error 1 "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
 fi
 
-if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -le 1000 ]; then
-    handle_error 1 "HOST_UID must be a non-empty integer greater than 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
+if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -lt 1000 ]; then
+    handle_error 1 "HOST_UID must be a non-empty integer greater than or equal to 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
 fi
 
-if [ -z "${HOST_UPGID}" ] || ! [[ ${HOST_UPGID} =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -le 1000 ]; then
-    handle_error 1 "HOST_UPGID must be a non-empty integer greater than 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
+if [ -z "${HOST_UPGID}" ] || ! [[ ${HOST_UPGID} =~ ^[0-9]+$ ]] || [ "${HOST_UPGID}" -lt 1000 ]; then
+    handle_error 1 "HOST_UPGID must be a non-empty integer greater than or equal to 1000 (got: '${HOST_UPGID}'). ${REMEMBER_MSG}"
 fi
 
 log info "Current user '${current_user}' (UID '${current_user_id}'), HOST_UID: ${HOST_UID}, HOST_UPGID: ${HOST_UPGID}"

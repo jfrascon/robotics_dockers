@@ -372,8 +372,8 @@ The entrypoint requires the following preconditions. If they are not met, the co
 | Precondition           | Requirement                                                    |
 | ---------------------- | -------------------------------------------------------------- |
 | Active user at startup | Must be `root` (UID 0)                                         |
-| `HOST_UID`             | Must exist, be non-empty, and be an integer greater than 1000  |
-| `HOST_UPGID`           | Must exist, be non-empty, and be an integer greater than 1000  |
+| `HOST_UID`             | Must exist, be non-empty, and be an integer greater than or equal to 1000  |
+| `HOST_UPGID`           | Must exist, be non-empty, and be an integer greater than or equal to 1000  |
 
 When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start `${HOME}/.entrypoint.sh`, which prepares the user environment and executes the requested command.
 

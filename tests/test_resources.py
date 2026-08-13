@@ -157,6 +157,16 @@ def test_entrypoint_user_sources_env_rc_then_execs_command() -> None:
     assert 'exec "$@"' in entrypoint_user
 
 
+def test_root_entrypoint_accepts_uid_and_gid_1000() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    entrypoint_root = package_resources.joinpath('entrypoint_root.sh.j2').read_text()
+
+    assert '[ "${HOST_UID}" -lt 1000 ]' in entrypoint_root
+    assert '[ "${HOST_UPGID}" -lt 1000 ]' in entrypoint_root
+    assert 'greater than or equal to 1000' in entrypoint_root
+    assert '-le 1000' not in entrypoint_root
+
+
 def test_ros_rc_sets_up_ros_shell_environment() -> None:
     package_resources = resources.files('robotics_dockers.resources')
     ros_rc = package_resources.joinpath('ros.rc').read_text()
