@@ -25,8 +25,8 @@ def test_generate_docker_context_creates_expected_files(tmp_path: Path) -> None:
     assert tmp_path.joinpath('build.py').is_file()
     assert tmp_path.joinpath('docker-compose-dev.yaml').is_file()
     assert tmp_path.joinpath('.resources', 'rosdep_skip_keys.txt').is_file()
-    assert tmp_path.joinpath('.resources', 'entrypoint.sh').is_file()
-    assert tmp_path.joinpath('.resources', 'entrypoint.d').is_dir()
+    assert tmp_path.joinpath('.resources', 'entrypoint_root.sh').is_file()
+    assert tmp_path.joinpath('.resources', 'entrypoint_root.d').is_dir()
 
 
 def test_generate_docker_context_requires_non_empty_runtime_ids(tmp_path: Path) -> None:
@@ -148,7 +148,7 @@ def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path:
     )
 
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
-    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint.sh').read_text()
+    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint_root.sh').read_text()
 
     assert 'USE_HOST_NVIDIA_DRIVER="true"' in dockerfile
     assert 'nvidia_gpu_driver_check()' in entrypoint
@@ -161,7 +161,7 @@ def test_generate_docker_context_sets_xdg_environment_in_entrypoint(tmp_path: Pa
         )
     )
 
-    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint.sh').read_text()
+    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint_root.sh').read_text()
 
     assert 'default_xdg_runtime_dir="/run/user/${HOST_UID}"' in entrypoint
     assert 'xdg_runtime_dir="${XDG_RUNTIME_DIR:-${default_xdg_runtime_dir}}"' in entrypoint
@@ -170,7 +170,7 @@ def test_generate_docker_context_sets_xdg_environment_in_entrypoint(tmp_path: Pa
     assert 'XDG_CONFIG_HOME=' not in entrypoint
     assert 'XDG_DATA_HOME=' not in entrypoint
     assert 'XDG_STATE_HOME=' not in entrypoint
-    assert '"${image_main_user_home}/.entrypoint_user.sh"' in entrypoint
+    assert '"${image_main_user_home}/.entrypoint.sh"' in entrypoint
 
 
 def test_generate_docker_context_uses_configured_image_metadata(tmp_path: Path) -> None:

@@ -22,7 +22,7 @@ Generate ready-to-use Docker build contexts for ROS 2 development images.
     - [Python API](#python-api)
     - [build.py reference](#buildpy-reference)
     - [Customizing the output](#customizing-the-output)
-    - [Startup scripts (entrypoint.d)](#startup-scripts-entrypointd)
+    - [Startup scripts (entrypoint_root.d)](#startup-scripts-entrypoint_rootd)
     - [NVIDIA GPU support](#nvidia-gpu-support)
     - [rosbuild: colcon build wrapper](#rosbuild-colcon-build-wrapper)
     - [Running the container](#running-the-container)
@@ -355,11 +355,11 @@ If the file contains only comments or blank lines, the Rust toolchain is
 
 ---
 
-### Startup scripts (entrypoint.d)
+### Startup scripts (entrypoint_root.d)
 
-When the container starts, `/usr/local/bin/entrypoint.sh` first handles the built-in startup work: it adapts the internal user UID/GID to match `HOST_UID`/`HOST_UPGID`, fixes ownership of the image-owned home directory, checks NVIDIA driver access when `--nvidia` was used, runs optional project hooks, prepares `XDG_RUNTIME_DIR`, and finally calls `gosu` to start the development user session through the user entrypoint. The user entrypoint prepares the persistent XDG directories and executes the requested command.
+When the container starts, `/usr/local/bin/entrypoint.sh` first handles the built-in startup work: it adapts the internal user UID/GID to match `HOST_UID`/`HOST_UPGID`, fixes ownership of the image-owned home directory, checks NVIDIA driver access when `--nvidia` was used, runs optional project hooks, prepares `XDG_RUNTIME_DIR`, and finally calls `gosu` to start the development user session through `${HOME}/.entrypoint.sh`. The user entrypoint prepares the persistent XDG directories and executes the requested command.
 
-A hook is a script that a project places in a known directory so the entrypoint runs it at a defined point during startup. In this project, `/etc/entrypoint.d/` contains optional **root hooks**: scripts provided by the generated project, executed as `root`, after UID/GID adaptation and before the final `gosu` call.
+A hook is a script that a project places in a known directory so the entrypoint runs it at a defined point during startup. In the generated context, `.resources/entrypoint_root.d/` contains optional **root hooks**. During the image build, those hooks are installed into `/etc/entrypoint.d/` and executed as `root`, after UID/GID adaptation and before the final `gosu` call.
 
 Root hooks run in alphabetical order. Files ending in `.sh` are executed with `bash`; they are not sourced. Files ending in `.txt` are printed to stdout. Because `.sh` hooks run as separate processes, variables exported by those scripts do not leak into the final user session. If a hook needs to pass information forward, write it to a file in a path that the later process can read.
 
@@ -375,7 +375,7 @@ The entrypoint requires the following preconditions. If they are not met, the co
 | `HOST_UID`             | Must exist, be non-empty, and be an integer greater than 1000  |
 | `HOST_UPGID`           | Must exist, be non-empty, and be an integer greater than 1000  |
 
-When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start `${HOME}/.entrypoint_user.sh`, which prepares the user environment and executes the requested command.
+When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then calls `exec gosu IMAGE_MAIN_USER` to start `${HOME}/.entrypoint.sh`, which prepares the user environment and executes the requested command.
 
 Before the final `gosu` call, the root entrypoint prepares `XDG_RUNTIME_DIR`, which defaults to `/run/user/<HOST_UID>` and must be private to the final user. If `XDG_RUNTIME_DIR` is provided, it must match that default path. The shared user environment then ensures the default persistent XDG directories exist under the user's home with mode `755`: `.cache`, `.config`, `.local/share`, and `.local/state`. It uses `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME` if they were provided by Docker; otherwise it defaults to those home directories. If one of these variables points outside the home, the user environment leaves it unchanged and prints a warning.
 
@@ -410,7 +410,7 @@ This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), wh
 Instead:
 
 1. Find the relevant script(s) in the base image entrypoint.
-2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint.d/` **before running `build.py`**. Use the filename to control alphabetical order, for example `10-print-ros-env.sh`. `build.py` will copy it into the image automatically.
+2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint_root.d/` **before running `build.py`**. Use the filename to control alphabetical order, for example `10-print-ros-env.sh`. `build.py` will copy it into `/etc/entrypoint.d/` in the image automatically.
 3. Run `build.py` as usual. The script will be picked up automatically.
 
 To inspect what entrypoint a base image defines:

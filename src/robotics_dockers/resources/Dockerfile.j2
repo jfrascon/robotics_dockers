@@ -11,14 +11,16 @@ LABEL org.opencontainers.image.title={{ meta_title | tojson }} \
     org.opencontainers.image.description={{ meta_desc | tojson }} \
     org.opencontainers.image.authors={{ meta_authors | tojson }}
 
-# Build-time configuration variables.
-# These are set early so they are available to all RUN steps during the build.
+# Build-only configuration variables.
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Runtime configuration variables.
+# These are set early so they are also available to all RUN steps during the build.
 ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
     IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
     ROS_DISTRO="{{ ros_distro }}" \
     ROS_VERSION="2" \
-    USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}" \
-    DEBIAN_FRONTEND="noninteractive"
+    USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}"
 
 USER root
 WORKDIR /root
@@ -47,7 +49,7 @@ required_context_paths=(
     .resources/ros.rc
     .resources/install_extra_pkgs.sh
     .resources/deduplicate_path
-    .resources/entrypoint.sh
+    .resources/entrypoint_root.sh
     .resources/skip_rosdep_keys
     .resources/rosdep_skip_keys.txt
     .resources/rosbuild
@@ -61,8 +63,8 @@ for relative_path in "${required_context_paths[@]}"; do
     fi
 done
 
-if [ ! -d "${context_dir}/.resources/entrypoint.d" ]; then
-    handle_error 1 "Directory not found: ${context_dir}/.resources/entrypoint.d"
+if [ ! -d "${context_dir}/.resources/entrypoint_root.d" ]; then
+    handle_error 1 "Directory not found: ${context_dir}/.resources/entrypoint_root.d"
 fi
 EOF
 
@@ -88,7 +90,7 @@ RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
 log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
 handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
 
-install --owner root --group root --mode 775 /tmp/context/.resources/install_pkgs /usr/local/bin/install_pkgs || \
+install --owner root --group root --mode 755 /tmp/context/.resources/install_pkgs /usr/local/bin/install_pkgs || \
     handle_error 1 "Failed to install 'install_pkgs'"
 
 bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
@@ -103,6 +105,7 @@ bash /tmp/context/.resources/install_mesa_packages.sh || \
     handle_error 1 "Failed to run 'install_mesa_packages.sh'"
 
 {% endif %}
+
 bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}" || \
     handle_error 1 "Failed to run 'install_ros.sh'"
 
@@ -132,9 +135,29 @@ bash /tmp/context/.resources/colcon_mixin_metadata.sh "${IMAGE_MAIN_USER}" || \
 bash /tmp/context/.resources/install_gh.sh || \
     handle_error 1 "Failed to run 'install_gh.sh'"
 
-image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
-image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
-image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
+log "Installing file '/usr/local/bin/entrypoint.sh'"
+install --owner root --group root --mode 755 /tmp/context/.resources/entrypoint_root.sh /usr/local/bin/entrypoint.sh || \
+    handle_error 1 "Failed to install '/usr/local/bin/entrypoint.sh'"
+
+log "Installing root hook scripts to /etc/entrypoint.d/"
+mkdir --parent /etc/entrypoint.d || \
+    handle_error 1 "Failed to create '/etc/entrypoint.d'"
+while IFS= read -r -d '' hook_path; do
+    hook_name="$(basename "${hook_path}")"
+    hook_mode="755"
+
+    if [[ ${hook_path} == *.txt ]]; then
+        hook_mode="644"
+    fi
+
+    log "Installing root hook '/etc/entrypoint.d/${hook_name}'"
+    install --owner root --group root --mode "${hook_mode}" "${hook_path}" "/etc/entrypoint.d/${hook_name}" || \
+        handle_error 1 "Failed to install root hook '/etc/entrypoint.d/${hook_name}'"
+done < <(find /tmp/context/.resources/entrypoint_root.d -maxdepth 1 -type f \( -name '*.sh' -o -name '*.txt' \) -print0 | sort -z)
+
+log "Installing file '/usr/local/bin/rosbuild'"
+install --owner root --group root --mode 755 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild || \
+    handle_error 1 "Failed to install '/usr/local/bin/rosbuild'"
 
 # If the '${bashrc_user_line}' does not exist in the .bashrc file of the user, added it.
 bashrc_user_line='[ -f "${HOME}/.bashrc_user" ] && . "${HOME}/.bashrc_user"'
@@ -144,62 +167,67 @@ bashrc_user_line='[ -f "${HOME}/.bashrc_user" ] && . "${HOME}/.bashrc_user"'
 # -F, --fixed-strings: Interpret the pattern as fixed strings, not regular expressions.
 if ! grep -qxF "${bashrc_user_line}" "${IMAGE_MAIN_USER_HOME}/.bashrc"; then
     log "Adding line '${bashrc_user_line}' to file the '${IMAGE_MAIN_USER_HOME}/.bashrc'"
-    echo '# --------------------------------------' >> "${IMAGE_MAIN_USER_HOME}/.bashrc"
-    echo "${bashrc_user_line}" >> "${IMAGE_MAIN_USER_HOME}/.bashrc"
+    {
+        echo '# --------------------------------------'
+        echo "${bashrc_user_line}"
+    } >> "${IMAGE_MAIN_USER_HOME}/.bashrc" || \
+        handle_error 1 "Failed to update '${IMAGE_MAIN_USER_HOME}/.bashrc'"
 else
     log "Line '${bashrc_user_line}' already exists in file '${IMAGE_MAIN_USER_HOME}/.bashrc'"
 fi
 
 # An environment script is installed in the home directory of the '${IMAGE_MAIN_USER}'.
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc_user "${IMAGE_MAIN_USER_HOME}/.bashrc_user"
+image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
+image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
+[ -z "${image_main_user_pri_group}" ] && handle_error 1 "Primary group '${image_main_user_pri_group_id}' for user '${IMAGE_MAIN_USER}' not found"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc_user "${IMAGE_MAIN_USER_HOME}/.bashrc_user" || \
+    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
 
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.entrypoint_user.sh'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/entrypoint_user.sh "${IMAGE_MAIN_USER_HOME}/.entrypoint_user.sh"
+log "Installing file '${IMAGE_MAIN_USER_HOME}/.entrypoint.sh'"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/entrypoint_user.sh "${IMAGE_MAIN_USER_HOME}/.entrypoint.sh" || \
+    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.entrypoint.sh'"
 
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.env.rc'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/env.rc "${IMAGE_MAIN_USER_HOME}/.env.rc"
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/env.rc "${IMAGE_MAIN_USER_HOME}/.env.rc" || \
+    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.env.rc'"
 
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.ros.rc'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/ros.rc "${IMAGE_MAIN_USER_HOME}/.ros.rc"
-
-# Every file and folder in image_main_user_home must belong to the IMAGE_MAIN_USER.
-log "Setting ownership of path '${IMAGE_MAIN_USER_HOME}' to user '${IMAGE_MAIN_USER}' (UID '${image_main_user_id}') and primary group '${image_main_user_pri_group}' (GID '${image_main_user_pri_group_id}')"
-chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_MAIN_USER_HOME}"
-
-log "Installing file '/usr/local/bin/entrypoint.sh'"
-install --owner root --group root --mode 775 /tmp/context/.resources/entrypoint.sh /usr/local/bin/entrypoint.sh
-
-log "Installing root hook scripts to /etc/entrypoint.d/"
-mkdir --parent /etc/entrypoint.d
-while IFS= read -r -d '' hook_path; do
-    hook_name="$(basename "${hook_path}")"
-    hook_mode="775"
-
-    if [[ ${hook_path} == *.txt ]]; then
-        hook_mode="664"
-    fi
-
-    log "Installing root hook '/etc/entrypoint.d/${hook_name}'"
-    install --owner root --group root --mode "${hook_mode}" "${hook_path}" "/etc/entrypoint.d/${hook_name}"
-done < <(find /tmp/context/.resources/entrypoint.d -maxdepth 1 -type f \( -name '*.sh' -o -name '*.txt' \) -print0 | sort -z)
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/ros.rc "${IMAGE_MAIN_USER_HOME}/.ros.rc" || \
+    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.ros.rc'"
 
 log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path"
-
-log "Installing file '/usr/local/bin/rosbuild'"
-install --owner root --group root --mode 775 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild
+install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path" || \
+    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
 
 # Install .bash_aliases_user if present in context (the user may have removed it between create_docker_files.py and build.py).
 if [ -e /tmp/context/.resources/bash_aliases_user ]; then
     log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases_user'"
-    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases_user "${IMAGE_MAIN_USER_HOME}/.bash_aliases_user"
+    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases_user "${IMAGE_MAIN_USER_HOME}/.bash_aliases_user" || \
+        handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.bash_aliases_user'"
 fi
 
+# Every file and folder in image_main_user_home must belong to the IMAGE_MAIN_USER.
+image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
+[ -z "${image_main_user_id}" ] && handle_error 1 "UID for user '${IMAGE_MAIN_USER}' not found"
+actual_user_home="$(echo "${image_main_user_entry}" | cut -d: -f6)"
+
+# Guard the recursive chown against future changes in the generator or user-creation script.
+[ -d "${IMAGE_MAIN_USER_HOME}" ] || handle_error 1 "Home directory '${IMAGE_MAIN_USER_HOME}' not found"
+[ "${IMAGE_MAIN_USER_HOME}" = "${actual_user_home}" ] || \
+    handle_error 1 "IMAGE_MAIN_USER_HOME '${IMAGE_MAIN_USER_HOME}' does not match passwd home '${actual_user_home}'"
+
+log "Setting ownership of path '${IMAGE_MAIN_USER_HOME}' to user '${IMAGE_MAIN_USER}' (UID '${image_main_user_id}') and primary group '${image_main_user_pri_group}' (GID '${image_main_user_pri_group_id}')"
+chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_MAIN_USER_HOME}" || \
+    handle_error 1 "Failed to set ownership of '${IMAGE_MAIN_USER_HOME}'"
+
 log "Removing installation residues from apt cache"
-apt-get autoremove --purge -y >/dev/null
-apt-get clean >/dev/null
-rm -rf /var/lib/apt/lists/* &>/dev/null
+apt-get autoremove --purge -y >/dev/null || \
+    handle_error 1 "Failed to autoremove apt packages"
+apt-get clean >/dev/null || \
+    handle_error 1 "Failed to clean apt cache"
+rm -rf /var/lib/apt/lists/* &>/dev/null || \
+    handle_error 1 "Failed to remove apt lists"
 EOF
 
 # Runtime environment variables.

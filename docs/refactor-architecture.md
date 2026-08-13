@@ -101,8 +101,8 @@ Important files include:
 - `Dockerfile.j2`: template for the generated Dockerfile.
 - `build.py.j2`: template for the generated `build.py`.
 - `docker-compose.yaml.j2`: template for the generated `docker-compose-dev.yaml`.
-- `entrypoint.sh`: container entrypoint script.
-- `entrypoint.d/`: startup scripts executed by the entrypoint.
+- `entrypoint_root.sh`: root container entrypoint script, installed as `/usr/local/bin/entrypoint.sh`.
+- `entrypoint_root.d/`: root startup scripts installed into `/etc/entrypoint.d/`.
 - `install_base_system.sh`: base system dependency installation.
 - `install_extra_pkgs.sh`: installs user-customizable extra packages.
 - `install_ros2.sh`: ROS 2 installation.
@@ -129,8 +129,8 @@ docker/
   build.py
   docker-compose-dev.yaml
   .resources/
-    entrypoint.sh
-    entrypoint.d/
+    entrypoint_root.sh
+    entrypoint_root.d/
     extra.d/
     install_base_system.sh
     install_extra_pkgs.sh

@@ -37,7 +37,7 @@ REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (U
 # .bashrc_user, or other project files. Those paths already belong to the host user.
 # Changing their ownership from the entrypoint is unnecessary and can be very expensive.
 # Mounting the home directory itself is not supported because it hides files installed by the image,
-# such as .entrypoint_user.sh, .env.rc, .ros.rc, and .bashrc_user.
+# such as .entrypoint.sh, .env.rc, .ros.rc, and .bashrc_user.
 chown_home_without_crossing_mounts() {
     # Remove one trailing slash so mount-point comparisons use a stable home path.
     local home_dir="${1%/}"
@@ -554,5 +554,5 @@ exec gosu "${IMAGE_MAIN_USER}" env \
     LOGNAME="${IMAGE_MAIN_USER}" \
     SHELL="${image_main_user_shell}" \
     XDG_RUNTIME_DIR="${xdg_runtime_dir}" \
-    "${image_main_user_home}/.entrypoint_user.sh" \
+    "${image_main_user_home}/.entrypoint.sh" \
     "$@"

@@ -83,7 +83,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
         '.resources/ros.rc': ['ros.rc', True],
         '.resources/rosbuild': ['ros2build', True],
         '.resources/rosdep_init_update_install.sh': ['rosdep_init_update_install.sh', True],
-        '.resources/entrypoint.d': [None],
+        '.resources/entrypoint_root.d': [None],
         '.resources/extra.d/apt_packages.sh': ['extra.d/apt_packages.sh', True],
         '.resources/extra.d/requirements.txt': ['extra.d/requirements.txt', False],
         '.resources/extra.d/rust_packages.txt': ['extra.d/rust_packages.txt', False],
@@ -92,8 +92,8 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
     items_to_install['.resources/colcon_mixin_metadata.sh'] = ['colcon_mixin_metadata.sh', True]
     items_to_install['.resources/skip_rosdep_keys'] = ['skip_rosdep_keys', True]
     items_to_install['.resources/rosdep_skip_keys.txt'] = ['rosdep_skip_keys.txt', False]
-    items_to_install['.resources/entrypoint.sh'] = [
-        'entrypoint.sh.j2',
+    items_to_install['.resources/entrypoint_root.sh'] = [
+        'entrypoint_root.sh.j2',
         {'use_host_nvidia_driver': config.use_host_nvidia_driver},
         True,
     ]
