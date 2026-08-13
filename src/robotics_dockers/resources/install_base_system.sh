@@ -334,7 +334,7 @@ fi
 #---------------------------------------------------------------------------------------------------
 # Install Python packages for the user that are commonly used for development.
 #---------------------------------------------------------------------------------------------------
-python_packages=(argcomplete ruff cmake-format pre-commit jinja2 python-rapidjson)
+python_packages=(argcomplete ruff cmake-format pre-commit jinja2 python-rapidjson uv)
 
 log info "Installing Python packages for the user '${TARGET_USER}': ${python_packages[*]}"
 
