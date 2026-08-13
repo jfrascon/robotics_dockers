@@ -1,3 +1,4 @@
+import os
 import subprocess
 from importlib import resources
 
@@ -102,19 +103,57 @@ def test_env_rc_sources_ros_rc_once() -> None:
     assert 'ROBOTICS_DOCKERS_ENV_LOADED' in env_rc
     assert 'export ROBOTICS_DOCKERS_ENV_LOADED=1' in env_rc
     assert 'export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${HOME}/.cache}"' in env_rc
-    assert 'ensure_default_user_dir "${HOME}/.cache"' in env_rc
+    assert 'ensure_xdg_user_dir XDG_CACHE_HOME "${XDG_CACHE_HOME}"' in env_rc
     assert 'ensure_default_user_dir "${HOME}/.local/bin"' in env_rc
     assert 'chmod 755 "${dir}"' in env_rc
-    assert 'warn_if_xdg_outside_home XDG_CACHE_HOME "${XDG_CACHE_HOME}"' in env_rc
+    assert 'Warning: ${name} points outside HOME' in env_rc
     assert '[[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]' in env_rc
     assert '[ -f "${HOME}/.ros.rc" ] && . "${HOME}/.ros.rc"' in env_rc
+
+
+def test_env_rc_creates_custom_xdg_dirs_inside_home(tmp_path) -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    env_rc = package_resources.joinpath('env.rc')
+    tmp_path.joinpath('.ros.rc').write_text('return 0\n')
+    env = os.environ.copy()
+    env.pop('ROBOTICS_DOCKERS_ENV_LOADED', None)
+    env.update(
+        {
+            'HOME': str(tmp_path),
+            'XDG_CACHE_HOME': str(tmp_path / 'custom-cache'),
+            'XDG_CONFIG_HOME': str(tmp_path / 'custom-config'),
+            'XDG_DATA_HOME': str(tmp_path / 'custom-data'),
+            'XDG_STATE_HOME': str(tmp_path / 'custom-state'),
+        }
+    )
+
+    result = subprocess.run(
+        [
+            'bash',
+            '-c',
+            '. "$1" && test -d "$XDG_CACHE_HOME" && test -d "$XDG_CONFIG_HOME" '
+            '&& test -d "$XDG_DATA_HOME" && test -d "$XDG_STATE_HOME" '
+            '&& [[ ":$PATH:" == *":$HOME/.local/bin:"* ]]',
+            'bash',
+            str(env_rc),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_entrypoint_user_sources_env_rc_then_execs_command() -> None:
     package_resources = resources.files('robotics_dockers.resources')
     entrypoint_user = package_resources.joinpath('entrypoint_user.sh').read_text()
 
-    assert '[ -f "${HOME}/.env.rc" ] && . "${HOME}/.env.rc" || exit 1' in entrypoint_user
+    assert 'if [ ! -f "${HOME}/.env.rc" ]; then' in entrypoint_user
+    assert "Error: required environment file '${HOME}/.env.rc' not found" in entrypoint_user
+    assert '. "${HOME}/.env.rc" || {' in entrypoint_user
+    assert "Error: failed to load required environment file '${HOME}/.env.rc'" in entrypoint_user
     assert 'exec "$@"' in entrypoint_user
 
 
