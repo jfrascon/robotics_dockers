@@ -31,22 +31,6 @@
 
 LOG_DIR="/run/robotics-dockers"
 LOG_FILE="${LOG_DIR}/entrypoint.log"
-
-install --directory --mode 700 --owner root --group root "${LOG_DIR}" || {
-    echo "Error: failed to create entrypoint log directory '${LOG_DIR}'" >&2
-    exit 1
-}
-
-truncate --size 0 "${LOG_FILE}" || {
-    echo "Error: failed to initialize entrypoint log file '${LOG_FILE}'" >&2
-    exit 1
-}
-
-chmod 600 "${LOG_FILE}" || {
-    echo "Error: failed to set mode 600 on entrypoint log file '${LOG_FILE}'" >&2
-    exit 1
-}
-
 REMEMBER_MSG="UID/GID adaptation requires the container to be started as root (UID 0) with both HOST_UID and HOST_UPGID defined as non-empty integers greater than or equal to 1000"
 
 # Update the ownership of the image user's home directory without entering bind mounts.
@@ -311,11 +295,7 @@ current_user="$(echo "${current_user_entry}" | cut -d: -f1)"
 current_user_pri_group_id="$(echo "${current_user_entry}" | cut -d: -f4)"
 current_user_pri_group="$(getent group "${current_user_pri_group_id}" | cut -d: -f1)"
 
-print_banner "Entrypoint: starting container for user '${IMAGE_MAIN_USER}'"
-
 script="${BASH_SOURCE:-${0}}"
-
-log info "Executing script '${script}' with user '${current_user}' (UID '${current_user_id}') and primary group '${current_user_pri_group}' (UPGID '${current_user_pri_group_id}')"
 
 # ---------------------------------------------------------------------------
 # Precondition checks.
@@ -328,8 +308,28 @@ log info "Executing script '${script}' with user '${current_user}' (UID '${curre
 # combination is a misconfiguration and fails with a clear message.
 # ---------------------------------------------------------------------------
 if [ "${current_user_id}" -ne 0 ]; then
-    handle_error 1 "This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}"
+    echo "Error: This script must run as root. Current user: '${current_user}' (UID '${current_user_id}'). ${REMEMBER_MSG}" >&2
+    exit 1
 fi
+
+install --directory --mode 700 --owner root --group root "${LOG_DIR}" || {
+    echo "Error: failed to create entrypoint log directory '${LOG_DIR}'" >&2
+    exit 1
+}
+
+truncate --size 0 "${LOG_FILE}" || {
+    echo "Error: failed to initialize entrypoint log file '${LOG_FILE}'" >&2
+    exit 1
+}
+
+chmod 600 "${LOG_FILE}" || {
+    echo "Error: failed to set mode 600 on entrypoint log file '${LOG_FILE}'" >&2
+    exit 1
+}
+
+print_banner "Entrypoint: starting container for user '${IMAGE_MAIN_USER}'"
+
+log info "Executing script '${script}' with user '${current_user}' (UID '${current_user_id}') and primary group '${current_user_pri_group}' (UPGID '${current_user_pri_group_id}')"
 
 if [ -z "${HOST_UID}" ] || ! [[ ${HOST_UID} =~ ^[0-9]+$ ]] || [ "${HOST_UID}" -lt 1000 ]; then
     handle_error 1 "HOST_UID must be a non-empty integer greater than or equal to 1000 (got: '${HOST_UID}'). ${REMEMBER_MSG}"
