@@ -370,11 +370,13 @@ user_entry="$(getent passwd "${HOST_UID}")"
 if [ -z "${user_entry}" ]; then
     # HOST_UID is not in use and can be assigned to IMAGE_MAIN_USER.
     log info "Setting id '${HOST_UID}' to user '${IMAGE_MAIN_USER}'"
-    usermod --uid "${HOST_UID}" "${IMAGE_MAIN_USER}"
-    log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
+    usermod --uid "${HOST_UID}" "${IMAGE_MAIN_USER}" || \
+        handle_error 1 "Failed to set UID '${HOST_UID}' on user '${IMAGE_MAIN_USER}'"
 
-    # Update the variable to reflect the new user id.
-    image_main_user_id="${HOST_UID}"
+    image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}" 2>/dev/null)"
+    [ -z "${image_main_user_entry}" ] && handle_error 1 "User '${IMAGE_MAIN_USER}' does not exist after UID update"
+    image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
+    log info "(${image_main_user_entry})"
 # Conflict: HOST_UID is already in use by a user other than IMAGE_MAIN_USER.
 # Two resolution options exist:
 #
@@ -450,7 +452,13 @@ if [ -z "${group_entry}" ]; then
     # HOST_UPGID is not in use and can be assigned to the existing group '${image_main_user_pri_group}'.
     log info "Group id '${HOST_UPGID}' is not in use in the image"
     log info "Setting id '${HOST_UPGID}' to group '${image_main_user_pri_group}'"
-    groupmod --gid "${HOST_UPGID}" "${image_main_user_pri_group}"
+    groupmod --gid "${HOST_UPGID}" "${image_main_user_pri_group}" || \
+        handle_error 1 "Failed to set GID '${HOST_UPGID}' on group '${image_main_user_pri_group}'"
+
+    image_main_user_pri_group_entry="$(getent group "${image_main_user_pri_group}" 2>/dev/null)"
+    [ -z "${image_main_user_pri_group_entry}" ] && \
+        handle_error 1 "Group '${image_main_user_pri_group}' does not exist after GID update"
+    log info "(${image_main_user_pri_group_entry})"
 
     # Next, we need to set the primary group id of the user ${IMAGE_MAIN_USER} to the group id ${HOST_UPGID}.
     # We do this action outside this if-elif structure.
@@ -477,15 +485,25 @@ elif [ "${HOST_UPGID}" != "${image_main_user_pri_group_id}" ]; then
 
     # Rename IMAGE_MAIN_USER's current primary group to a temporary unique name, freeing the name
     # '${image_main_user_pri_group}' so it can be assigned to the group owning HOST_UPGID.
-    new_group_name="$(generate_unique_name group "${image_main_user_pri_group}_")"
+    new_group_name="$(generate_unique_name group "${image_main_user_pri_group}_")" || \
+        handle_error 1 "Failed to generate temporary group name for '${image_main_user_pri_group}'"
     log info "Setting name '${new_group_name}' to group '${image_main_user_pri_group_id}'. Name '${image_main_user_pri_group}' will be available"
-    groupmod --new-name "${new_group_name}" "${image_main_user_pri_group}"
-    log info "($(getent group "${new_group_name}"))"
+    groupmod --new-name "${new_group_name}" "${image_main_user_pri_group}" || \
+        handle_error 1 "Failed to rename group '${image_main_user_pri_group}' to '${new_group_name}'"
+
+    new_group_entry="$(getent group "${new_group_name}" 2>/dev/null)"
+    [ -z "${new_group_entry}" ] && handle_error 1 "Group '${new_group_name}' does not exist after rename"
+    log info "(${new_group_entry})"
 
     # Now, we can set the name ${image_main_user_pri_group} to the group with id ${HOST_UPGID}.
     log info "Setting name '${image_main_user_pri_group}' to group '${HOST_UPGID}'"
-    groupmod --new-name "${image_main_user_pri_group}" "${group}"
-    log info "($(getent group "${image_main_user_pri_group}"))"
+    groupmod --new-name "${image_main_user_pri_group}" "${group}" || \
+        handle_error 1 "Failed to rename group '${group}' to '${image_main_user_pri_group}'"
+
+    image_main_user_pri_group_entry="$(getent group "${image_main_user_pri_group}" 2>/dev/null)"
+    [ -z "${image_main_user_pri_group_entry}" ] && \
+        handle_error 1 "Group '${image_main_user_pri_group}' does not exist after rename"
+    log info "(${image_main_user_pri_group_entry})"
 
     # Next, we need to set the primary group id of the user ${IMAGE_MAIN_USER} to the group id ${HOST_UPGID}.
     # We do this action outside this if-elif structure.
@@ -498,8 +516,16 @@ fi
 # '${image_main_user_pri_group}'. Assign it as the primary GID of IMAGE_MAIN_USER.
 if [ "${HOST_UPGID}" != "${image_main_user_pri_group_id}" ]; then
     log info "Setting primary group id '${HOST_UPGID}' to user '${IMAGE_MAIN_USER}'"
-    usermod --gid "${HOST_UPGID}" "${IMAGE_MAIN_USER}"
-    log info "($(getent passwd "${IMAGE_MAIN_USER}"))"
+    usermod --gid "${HOST_UPGID}" "${IMAGE_MAIN_USER}" || \
+        handle_error 1 "Failed to set primary GID '${HOST_UPGID}' on user '${IMAGE_MAIN_USER}'"
+
+    image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}" 2>/dev/null)"
+    [ -z "${image_main_user_entry}" ] && handle_error 1 "User '${IMAGE_MAIN_USER}' does not exist after primary GID update"
+    image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
+    image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
+    [ -z "${image_main_user_pri_group}" ] && \
+        handle_error 1 "Group '${image_main_user_pri_group_id}' does not exist after primary GID update"
+    log info "(${image_main_user_entry})"
 fi
 
 # At this point, the adaptation of UID and primary GID is complete.
