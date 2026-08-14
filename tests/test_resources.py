@@ -157,14 +157,89 @@ def test_entrypoint_user_sources_env_rc_then_execs_command() -> None:
     assert 'exec "$@"' in entrypoint_user
 
 
-def test_root_entrypoint_accepts_uid_and_gid_1000() -> None:
+def test_root_entrypoint_normalizes_decimal_ids_without_arithmetic_overflow() -> None:
     package_resources = resources.files('robotics_dockers.resources')
     entrypoint_root = package_resources.joinpath('entrypoint_root.sh.j2').read_text()
 
-    assert '[ "${HOST_UID}" -lt 1000 ]' in entrypoint_root
-    assert '[ "${HOST_UPGID}" -lt 1000 ]' in entrypoint_root
+    uid_format_check = '[[ ${HOST_UID} =~ ^[0-9]+$ ]]'
+    uid_normalization = 'HOST_UID="$(normalize_decimal_id "${HOST_UID}")"'
+    uid_maximum_check = '[ "${HOST_UID}" -gt "${MAX_USER_GROUP_ID}" ]'
+    uid_minimum_check = '[ "${HOST_UID}" -lt 1000 ]'
+    gid_format_check = '[[ ${HOST_UPGID} =~ ^[0-9]+$ ]]'
+    gid_normalization = 'HOST_UPGID="$(normalize_decimal_id "${HOST_UPGID}")"'
+    gid_maximum_check = '[ "${HOST_UPGID}" -gt "${MAX_USER_GROUP_ID}" ]'
+    gid_minimum_check = '[ "${HOST_UPGID}" -lt 1000 ]'
+
+    assert entrypoint_root.index(uid_format_check) < entrypoint_root.index(uid_normalization)
+    assert entrypoint_root.index(uid_normalization) < entrypoint_root.index(uid_maximum_check)
+    assert entrypoint_root.index(uid_maximum_check) < entrypoint_root.index(uid_minimum_check)
+    assert entrypoint_root.index(gid_format_check) < entrypoint_root.index(gid_normalization)
+    assert entrypoint_root.index(gid_normalization) < entrypoint_root.index(gid_maximum_check)
+    assert entrypoint_root.index(gid_maximum_check) < entrypoint_root.index(gid_minimum_check)
+    assert 'MAX_USER_GROUP_ID=4294967294' in entrypoint_root
+    assert '10#' not in entrypoint_root
     assert 'greater than or equal to 1000' in entrypoint_root
     assert '-le 1000' not in entrypoint_root
+
+
+def test_root_entrypoint_requires_canonical_decimal_ids_in_passwd() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    entrypoint_root = package_resources.joinpath('entrypoint_root.sh.j2').read_text()
+
+    assert '[[ ${image_main_user_id} =~ ^[1-9][0-9]*$ ]]' in entrypoint_root
+    assert '[[ ${image_main_user_pri_group_id} =~ ^[1-9][0-9]*$ ]]' in entrypoint_root
+    assert 'image_main_user_id="$((10#${image_main_user_id}))"' not in entrypoint_root
+    assert 'image_main_user_pri_group_id="$((10#${image_main_user_pri_group_id}))"' not in entrypoint_root
+
+
+def test_root_entrypoint_log_is_root_owned_and_world_readable() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    entrypoint_root = package_resources.joinpath('entrypoint_root.sh.j2').read_text()
+
+    assert 'install --directory --mode 755 --owner 0 --group 0 "${LOG_DIR}"' in entrypoint_root
+    assert 'rm --force -- "${LOG_FILE}"' in entrypoint_root
+    assert 'install --mode 644 --owner 0 --group 0 /dev/null "${LOG_FILE}"' in entrypoint_root
+    assert '[ -L "${LOG_DIR}" ]' in entrypoint_root
+
+
+def test_root_entrypoint_reads_only_the_required_executing_identity() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    entrypoint_root = package_resources.joinpath('entrypoint_root.sh.j2').read_text()
+
+    assert 'entrypoint_user_id="$(id --user 2>/dev/null)"' in entrypoint_root
+    assert 'entrypoint_primary_group_id="$(id --group 2>/dev/null)"' in entrypoint_root
+    assert 'entrypoint_user_entry' not in entrypoint_root
+    assert 'entrypoint_user_name' not in entrypoint_root
+    assert 'entrypoint_user_primary_group_id' not in entrypoint_root
+    assert 'entrypoint_user_primary_group_name' not in entrypoint_root
+
+
+def test_root_entrypoint_documents_and_uses_single_usermod_strategy() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    entrypoint_root = package_resources.joinpath('entrypoint_root.sh.j2').read_text()
+
+    assert '# Decision matrix' in entrypoint_root
+    assert 'groupmod --gid because that command would change the primary GID' in entrypoint_root
+    assert '# How usermod changes the account and home ownership' in entrypoint_root
+    assert '# Mounts below the home' in entrypoint_root
+    assert '# Failure limits' in entrypoint_root
+    assert 'generate_preserved_group_name()' in entrypoint_root
+    assert 'candidate="rd_old_${old_group_id}"' in entrypoint_root
+    assert 'if ! usermod "${usermod_options[@]}" "${IMAGE_MAIN_USER}"; then' in entrypoint_root
+    assert 'exec setpriv "${setpriv_options[@]}" env' in entrypoint_root
+    assert 'exec gosu ' not in entrypoint_root
+    assert 'groupmod --gid "' not in entrypoint_root
+    assert 'chown_home_without_crossing_mounts' not in entrypoint_root
+    assert 'generate_unique_name' not in entrypoint_root
+    assert 'find_free_id' not in entrypoint_root
+
+
+def test_base_system_installs_setpriv_provider_without_gosu() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    install_base_system = package_resources.joinpath('install_base_system.sh').read_text()
+
+    assert '    util-linux\n' in install_base_system
+    assert '    gosu\n' not in install_base_system
 
 
 def test_ros_rc_sets_up_ros_shell_environment() -> None:

@@ -272,7 +272,10 @@ ENV TZ="Etc/UTC" \
     {{ ros_discovery_env_name }}={{ ros_discovery_env_value | tojson }} \
     RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
 
-USER "${IMAGE_MAIN_USER}"
+# The root entrypoint needs UID 0 to adapt IMAGE_MAIN_USER and then drops
+# privileges before starting the development process. Keep the working directory
+# in IMAGE_MAIN_USER's home so the process started after setpriv begins there.
+USER root
 WORKDIR "${IMAGE_MAIN_USER_HOME}"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]

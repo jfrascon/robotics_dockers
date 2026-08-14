@@ -122,7 +122,6 @@ packages=(
     gdb
     git
     gnupg
-    gosu
     htop
     iproute2
     iputils-ping

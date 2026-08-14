@@ -72,10 +72,11 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
                 'img_id': config.img_id,
                 'image_main_user': config.image_main_user,
                 'image_main_user_home': image_main_user_home,
-                'img_workspace_dir': f'{image_main_user_home}/workspace',
-                'img_datasets_dir': f'{image_main_user_home}/datasets',
-                'img_ssh_dir': f'{image_main_user_home}/.ssh',
-                'img_gitconfig_file': f'{image_main_user_home}/.gitconfig',
+                # Keep generated bind mounts outside the image user's home. The root
+                # entrypoint uses usermod to remap image-owned home content, and
+                # shadow-utils traverses mounted filesystems below that home.
+                'img_workspace_dir': '/workspace',
+                'img_datasets_dir': '/datasets',
                 'use_host_nvidia_driver': config.use_host_nvidia_driver,
             },
             False,

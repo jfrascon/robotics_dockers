@@ -63,18 +63,23 @@ def test_generate_docker_context_requires_non_empty_runtime_ids(tmp_path: Path) 
     assert 'source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"' in compose
     assert (
         '- ${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}'
-        ':/home/developer/workspace' in compose
+        ':/workspace' in compose
     )
     assert 'target: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"' in compose
     assert 'XDG_RUNTIME_DIR: "/run/user/${HOST_UID:?HOST_UID must be set}"' in compose
     assert 'XAUTHORITY: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"' in compose
-    assert 'CONTAINER_ROS_WORKSPACE: "/home/developer/workspace"' in compose
+    assert '#- ~/datasets:/datasets' in compose
+    assert 'CONTAINER_ROS_WORKSPACE: "/workspace"' in compose
     assert (
         '- /run/user/${HOST_UID:?HOST_UID must be set}:mode=700,'
         'uid=${HOST_UID:?HOST_UID must be set},gid=${HOST_UPGID:?HOST_UPGID must be set}' in compose
     )
     assert '${HOST_UID?HOST_UID must be set}' not in compose
     assert '${HOST_UPGID?HOST_UPGID must be set}' not in compose
+
+    dockerfile = tmp_path.joinpath('Dockerfile').read_text()
+    assert 'USER root\nWORKDIR "${IMAGE_MAIN_USER_HOME}"\nENTRYPOINT ["/usr/local/bin/entrypoint.sh"]' in dockerfile
+    assert 'USER "${IMAGE_MAIN_USER}"' not in dockerfile
     assert '${HOST_XAUTHORITY_FILE?HOST_XAUTHORITY_FILE must be set}' not in compose
     assert '${RENDER_GID?RENDER_GID must be set}' not in compose
 
@@ -225,10 +230,15 @@ def test_generate_docker_context_uses_nvidia_check_only_when_requested(tmp_path:
     )
 
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
-    entrypoint = result.context_dir.joinpath('.resources', 'entrypoint_root.sh').read_text()
+    entrypoint_path = result.context_dir.joinpath('.resources', 'entrypoint_root.sh')
+    entrypoint = entrypoint_path.read_text()
 
     assert 'USE_HOST_NVIDIA_DRIVER="true"' in dockerfile
     assert 'nvidia_gpu_driver_check()' in entrypoint
+    assert 'if [ "${USE_HOST_NVIDIA_DRIVER}" = "true" ]; then' in entrypoint
+
+    syntax = subprocess.run(['bash', '-n', str(entrypoint_path)], capture_output=True, text=True, check=False)
+    assert syntax.returncode == 0, syntax.stdout + syntax.stderr
 
 
 def test_generate_docker_context_sets_xdg_environment_in_entrypoint(tmp_path: Path) -> None:

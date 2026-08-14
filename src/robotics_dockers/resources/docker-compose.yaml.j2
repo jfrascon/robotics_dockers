@@ -3,8 +3,8 @@ services:
   {{ service }}:
     image: {{ img_id }}
 
-    # The container starts as root because the entrypoint uses HOST_UID /
-    # HOST_UPGID and gosu to switch to the effective development user.
+    # The container starts as root because the entrypoint adapts the account to
+    # HOST_UID / HOST_UPGID before setpriv starts the development process.
     user: root
 
     privileged: false
@@ -53,11 +53,15 @@ services:
       # +------------------+
       # | Project mappings |
       # +------------------+
+      # Keep project mounts outside IMAGE_MAIN_USER's home. If a custom mount is
+      # placed below the home, usermod treats it like other home content while
+      # adapting the image user's UID and primary GID.
       - ${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}:{{ img_workspace_dir }}
 
       # +------------------+
       # | Dataset mappings |
       # +------------------+
+      # The suggested target is also outside IMAGE_MAIN_USER's home for the same reason.
       #- ~/datasets:{{ img_datasets_dir }}
 
       # +-------------------+
@@ -137,7 +141,7 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: "all"
       {% endif %}
 
-      # Used by the entrypoint to remap the container user and then exec with gosu.
+      # Used by the entrypoint to remap the container user before dropping root.
       # How to provide HOST_UID and HOST_UPGID (choose one):
       #   1. .env file next to this docker-compose file:
       #        HOST_UID=1000
@@ -164,8 +168,9 @@ services:
     #   3. Inline when running docker compose:
     #        RENDER_GID=$(stat -c %g /dev/dri/renderD128) docker compose up
     #
-    # This is required because modifying /etc/group at runtime (entrypoint) is
-    # not enough: processes started by VS Code do not inherit late group changes.
+    # The entrypoint preserves this inherited numeric GID when it drops root.
+    # Docker also applies group_add to later processes created with docker exec,
+    # including processes started by VS Code.
     group_add:
       - "${RENDER_GID:?RENDER_GID must be set}"
 
