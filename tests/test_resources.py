@@ -36,11 +36,7 @@ FAILING_COLCON_REPOSITORY_COMMANDS = ('mixin list', 'mixin remove default', 'met
 
 
 def _resolved_config():
-    return resolve_config(
-        DockerContextConfig(
-            ros_distro='jazzy', img_id='local/ros-test:latest', user='developer', user_id=1000, primary_group_id=1000
-        )
-    )
+    return resolve_config(DockerContextConfig(ros_distro='jazzy', img_id='local/ros-test:latest'))
 
 
 def test_all_referenced_resources_are_packaged() -> None:

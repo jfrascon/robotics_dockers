@@ -11,7 +11,6 @@ from robotics_dockers import DockerContextConfig, generate_docker_context
 from robotics_dockers.config import ROS_DISTROS, resolve_config
 from robotics_dockers.errors import (
     InvalidDockerImageNameError,
-    InvalidImageIdentityError,
     InvalidOutputDirectoryError,
     InvalidRosdepPackagesDirError,
     InvalidRosDistroError,
@@ -19,14 +18,7 @@ from robotics_dockers.errors import (
 
 
 def _config(output_dir: Path | None = None, **overrides: object) -> DockerContextConfig:
-    values: dict[str, object] = {
-        'ros_distro': 'jazzy',
-        'img_id': 'local/ros-test:latest',
-        'user': 'developer',
-        'user_id': 1000,
-        'primary_group_id': 1001,
-        'output_dir': output_dir,
-    }
+    values: dict[str, object] = {'ros_distro': 'jazzy', 'img_id': 'local/ros-test:latest', 'output_dir': output_dir}
     values.update(overrides)
     return DockerContextConfig(**values)  # type: ignore[arg-type]
 
@@ -34,18 +26,13 @@ def _config(output_dir: Path | None = None, **overrides: object) -> DockerContex
 def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> None:
     result = generate_docker_context(_config(tmp_path))
 
-    # Generation resolves and validates the input once, then returns that exact
-    # normalized configuration for callers that need to present it.
-    assert result.resolved_config.user == 'developer'
-    assert result.resolved_config.primary_group == 'developer'
-    assert result.resolved_config.user_id == 1000
-    assert result.resolved_config.primary_group_id == 1001
-
     expected = (
         'Dockerfile',
-        'Dockerfile.update-user',
+        'Dockerfile_update_user',
         'build.py',
-        'docker-compose-dev.yaml',
+        'compose_files/docker-compose.yaml',
+        'robotics_dockers_user_env.py',
+        'env_files/.gitkeep',
         '.resources/configure_image_user.sh',
         '.resources/configure_sudo.sh',
         '.resources/entrypoint_user.sh',
@@ -68,43 +55,39 @@ def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> No
         assert obsolete_value not in generated_text
 
 
-def test_generated_identity_compose_and_metadata_are_concrete(tmp_path: Path) -> None:
+def test_generated_identity_sources_are_general_and_metadata_is_concrete(tmp_path: Path) -> None:
     result = generate_docker_context(
-        _config(
-            tmp_path,
-            primary_group='robotics',
-            meta_title='Custom image',
-            meta_desc='Custom description',
-            meta_authors='Custom Author',
-        )
+        _config(tmp_path, meta_title='Custom image', meta_desc='Custom description', meta_authors='Custom Author')
     )
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
-    adapter = result.context_dir.joinpath('Dockerfile.update-user').read_text()
-    compose = result.context_dir.joinpath('docker-compose-dev.yaml').read_text()
+    adapter = result.context_dir.joinpath('Dockerfile_update_user').read_text()
+    compose = result.context_dir.joinpath('compose_files/docker-compose.yaml').read_text()
 
-    assert 'ROBOTICS_DOCKERS_USER="developer"' in dockerfile
-    assert 'ROBOTICS_DOCKERS_USER_ID="1000"' in dockerfile
-    assert 'ROBOTICS_DOCKERS_USER_HOME="/home/developer"' in dockerfile
-    assert 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP="robotics"' in dockerfile
-    assert 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID="1001"' in dockerfile
-    assert 'io.github.jfrascon.robotics-dockers.user.name="developer"' in dockerfile
+    assert 'ARG ROBOTICS_DOCKERS_USER_ID' in dockerfile
+    assert 'ROBOTICS_DOCKERS_USER_ID="${ROBOTICS_DOCKERS_USER_ID}"' in dockerfile
+    assert 'io.github.jfrascon.robotics-dockers.user.name="${ROBOTICS_DOCKERS_USER}"' in dockerfile
     assert 'org.opencontainers.image.title="Custom image"' in dockerfile
     assert 'USER "${ROBOTICS_DOCKERS_USER}"' in dockerfile
     assert 'WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"' in dockerfile
-    assert 'USER "developer"' in adapter
-    assert 'WORKDIR "/home/developer"' in adapter
-    assert '"${NEW_UID}" "${NEW_GID}" "developer" "/home/developer"' in adapter
+    assert 'USER "${ROBOTICS_DOCKERS_USER}"' in adapter
+    assert 'WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"' in adapter
+    assert '"${NEW_UID}" "${NEW_GID}" "${ROBOTICS_DOCKERS_USER}" "${ROBOTICS_DOCKERS_USER_HOME}"' in adapter
 
     assert 'user:' not in compose
-    assert '/run/user/1000:mode=700,uid=1000,gid=1001' in compose
-    assert 'XDG_RUNTIME_DIR: "/run/user/1000"' in compose
+    assert '${ROBOTICS_DOCKERS_USER_ID:?' in compose
+    assert '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID:?' in compose
+    assert 'working_dir:' not in compose
     assert 'CONTAINER_ROS_WORKSPACE: "/workspace"' in compose
-    assert '${HOST_ROS_WORKSPACE:' in compose
+    assert '# - "${HOST_ROS_WORKSPACE:' in compose
     assert '#- ~/datasets:/datasets' in compose
     assert '# cap_add:' in compose
     assert '#   - NET_ADMIN' in compose
     assert '${HOST_UID' not in compose
     assert '${HOST_UPGID' not in compose
+    for concrete_identity in ('"developer"', '"/home/developer"', '"1000"', '"1001"'):
+        assert concrete_identity not in dockerfile
+        assert concrete_identity not in adapter
+        assert concrete_identity not in compose
 
 
 def test_generated_build_script_uses_cache_by_default_and_only_adds_created_label(tmp_path: Path) -> None:
@@ -126,8 +109,18 @@ def test_generated_build_script_uses_cache_by_default_and_only_adds_created_labe
 import json
 import os
 import sys
-with open(os.environ['DOCKER_ARGS_FILE'], 'w', encoding='utf-8') as output:
-    json.dump(sys.argv[1:], output)
+with open(os.environ['DOCKER_ARGS_FILE'], 'a', encoding='utf-8') as output:
+    output.write(json.dumps(sys.argv[1:]) + '\\n')
+if sys.argv[1:3] == ['image', 'inspect']:
+    with open(os.environ['DOCKER_ARGS_FILE'], encoding='utf-8') as recorded:
+        build_args = json.loads(recorded.readline())
+    image_environment = [
+        build_args[index + 1] for index, value in enumerate(build_args) if value == '--build-arg'
+    ]
+    if os.environ.get('DOCKER_IDENTITY_MISMATCH'):
+        image_environment[0] = 'ROBOTICS_DOCKERS_USER=another_user'
+        image_environment[2] = 'ROBOTICS_DOCKERS_USER_HOME=/home/another_user'
+    print(json.dumps([{'Config': {'Env': image_environment}}]))
 """
     )
     fake_docker.chmod(0o755)
@@ -136,28 +129,74 @@ with open(os.environ['DOCKER_ARGS_FILE'], 'w', encoding='utf-8') as output:
     environment['PATH'] = f'{fake_bin_dir}:{environment["PATH"]}'
 
     default_build = subprocess.run(
-        [str(result.context_dir / 'build.py')], cwd=result.context_dir, env=environment, text=True, capture_output=True
+        [str(result.context_dir / 'build.py'), 'developer', '01000', '01001'],
+        cwd=result.context_dir,
+        env=environment,
+        text=True,
+        capture_output=True,
     )
     assert default_build.returncode == 0, default_build.stdout + default_build.stderr
-    default_args = json.loads(args_file.read_text())
+    default_calls = [json.loads(line) for line in args_file.read_text().splitlines()]
+    default_args = default_calls[0]
     assert '--no-cache' not in default_args
     assert '--pull' not in default_args
-    assert '--build-arg' not in default_args
+    build_arguments = [default_args[index + 1] for index, value in enumerate(default_args) if value == '--build-arg']
+    assert build_arguments == [
+        'ROBOTICS_DOCKERS_USER=developer',
+        'ROBOTICS_DOCKERS_USER_ID=1000',
+        'ROBOTICS_DOCKERS_USER_HOME=/home/developer',
+        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP=developer',
+        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID=1001',
+    ]
     labels = [default_args[index + 1] for index, value in enumerate(default_args) if value == '--label']
     assert len(labels) == 1
     assert labels[0].startswith('org.opencontainers.image.created=')
+    assert default_calls[1] == ['image', 'inspect', 'local/ros-test:latest']
+    assert not tmp_path.joinpath('.env').exists()
 
+    args_file.write_text('')
     no_cache_build = subprocess.run(
-        [str(result.context_dir / 'build.py'), '--no-cache', '--pull'],
+        [
+            str(result.context_dir / 'build.py'),
+            'developer',
+            '1000',
+            '1001',
+            '--group',
+            'robotics',
+            '--no-cache',
+            '--pull',
+        ],
         cwd=result.context_dir,
         env=environment,
         text=True,
         capture_output=True,
     )
     assert no_cache_build.returncode == 0
-    no_cache_args = json.loads(args_file.read_text())
+    no_cache_args = json.loads(args_file.read_text().splitlines()[0])
     assert '--no-cache' in no_cache_args
     assert '--pull' in no_cache_args
+    assert 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP=robotics' in no_cache_args
+
+    args_file.write_text('')
+    environment['DOCKER_IDENTITY_MISMATCH'] = '1'
+    mismatched_build = subprocess.run(
+        [str(result.context_dir / 'build.py'), 'developer', '1000', '1001'],
+        cwd=result.context_dir,
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+    assert mismatched_build.returncode == 1
+    assert 'the build requested developer:developer' in mismatched_build.stderr
+    assert not tmp_path.joinpath('.env').exists()
+
+
+def test_generated_compose_can_enable_workspace_mount(tmp_path: Path) -> None:
+    result = generate_docker_context(_config(tmp_path, enable_workspace_mount=True))
+    compose = result.context_dir.joinpath('compose_files/docker-compose.yaml').read_text()
+
+    assert '\n      - "${HOST_ROS_WORKSPACE:' in compose
+    assert '# - "${HOST_ROS_WORKSPACE:' not in compose
 
 
 def test_generated_build_script_propagates_launch_failure(tmp_path: Path) -> None:
@@ -166,7 +205,7 @@ def test_generated_build_script_propagates_launch_failure(tmp_path: Path) -> Non
     environment['PATH'] = str(tmp_path / 'missing-bin')
 
     completed = subprocess.run(
-        [sys.executable, str(result.context_dir / 'build.py')],
+        [sys.executable, str(result.context_dir / 'build.py'), 'developer', '1000', '1000'],
         cwd=result.context_dir,
         env=environment,
         text=True,
@@ -174,6 +213,55 @@ def test_generated_build_script_propagates_launch_failure(tmp_path: Path) -> Non
     )
 
     assert completed.returncode == 1
+
+
+def test_generated_build_script_does_not_hide_unexpected_exceptions(tmp_path: Path) -> None:
+    result = generate_docker_context(_config(tmp_path))
+    fake_bin_dir = tmp_path / 'fake-bin'
+    fake_bin_dir.mkdir()
+    fake_docker = fake_bin_dir / 'docker'
+    fake_docker.write_text('#!/bin/sh\nexit 0\n')
+    fake_docker.chmod(0o755)
+
+    # Replace the generated helper with a small test double. The build succeeds,
+    # but inspecting its identity raises an unexpected programming error. That
+    # error must retain its traceback instead of becoming a successful exit.
+    result.context_dir.joinpath('robotics_dockers_user_env.py').write_text(
+        """class UserEnvError(Exception):
+    pass
+
+
+class ImageUserInfo:
+    def __init__(self, **values):
+        self.__dict__.update(values)
+
+
+def validate_account_name(value, label):
+    return value
+
+
+def validate_numeric_id(value, label):
+    return int(value)
+
+
+def inspect_image_user(image):
+    raise RuntimeError('deliberate unexpected inspection failure')
+"""
+    )
+    environment = os.environ.copy()
+    environment['PATH'] = f'{fake_bin_dir}:{environment["PATH"]}'
+
+    completed = subprocess.run(
+        [str(result.context_dir / 'build.py'), 'developer', '1000', '1000'],
+        cwd=result.context_dir,
+        env=environment,
+        text=True,
+        capture_output=True,
+    )
+
+    assert completed.returncode != 0
+    assert 'Traceback (most recent call last)' in completed.stderr
+    assert 'RuntimeError: deliberate unexpected inspection failure' in completed.stderr
 
 
 def test_generate_docker_context_uses_named_temporary_output_dir() -> None:
@@ -269,22 +357,9 @@ def test_generated_python_escapes_configured_paths_and_metadata(tmp_path: Path) 
         ({'img_id': '-invalid.example/image:latest'}, InvalidDockerImageNameError),
         ({'img_id': 'invalid-.example/image:latest'}, InvalidDockerImageNameError),
         ({'img_id': f'local/image:{"a" * 129}'}, InvalidDockerImageNameError),
-        ({'user': 'InvalidUser'}, InvalidImageIdentityError),
-        ({'primary_group': 'bad.group'}, InvalidImageIdentityError),
-        ({'user_id': 999}, InvalidImageIdentityError),
-        ({'primary_group_id': 4294967295}, InvalidImageIdentityError),
         ({'rosdep_packages_dir': ' '}, InvalidRosdepPackagesDirError),
     ],
 )
 def test_resolve_config_rejects_invalid_values(overrides: dict[str, object], error_type: type[Exception]) -> None:
     with pytest.raises(error_type):
         resolve_config(_config(**overrides))
-
-
-def test_resolve_config_normalizes_ids_and_defaults_group() -> None:
-    resolved = resolve_config(_config(user_id='00001000', primary_group_id='00001001'))
-
-    assert resolved.user_id == 1000
-    assert resolved.primary_group_id == 1001
-    assert resolved.primary_group == 'developer'
-    assert resolved.user_home == '/home/developer'

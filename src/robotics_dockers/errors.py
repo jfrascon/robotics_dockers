@@ -6,10 +6,6 @@ class InvalidDockerImageNameError(RoboticsDockersError):
     """Raised when a Docker image name does not match Docker naming rules."""
 
 
-class InvalidImageIdentityError(RoboticsDockersError):
-    """Raised when the requested development user or group identity is invalid."""
-
-
 class InvalidRosDistroError(RoboticsDockersError):
     """Raised when the requested ROS distribution is not supported."""
 

@@ -71,13 +71,24 @@ if [ -z "${DISPLAY}" ]; then
     handle_error 1 "DISPLAY is not set; XWayland is unavailable"
 fi
 
-if [ -z "${XDG_RUNTIME_DIR}" ]; then
-    handle_error 1 "XDG_RUNTIME_DIR is not set"
+# A normal systemd desktop session uses /run/user/<UID>. Some ways of
+# launching this installer do not preserve the exported XDG_RUNTIME_DIR even
+# though the standard runtime directory already exists. Derive only the
+# missing variable; never replace a non-empty value supplied by the session.
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    desktop_user_id="$(id --user)" ||
+        handle_error 1 "Failed to obtain the desktop user ID"
+
+    XDG_RUNTIME_DIR="/run/user/${desktop_user_id}"
 fi
 
 if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
-    handle_error 1 "XDG_RUNTIME_DIR does not exist: ${XDG_RUNTIME_DIR}"
+    handle_error 1 "User runtime directory does not exist: ${XDG_RUNTIME_DIR}"
 fi
+
+# systemctl --user import-environment reads exported process variables. Export
+# the derived value so the installed user service receives the same directory.
+export XDG_RUNTIME_DIR
 
 if [ -z "${XAUTHORITY}" ]; then
     handle_error 1 "XAUTHORITY is not set"
@@ -134,6 +145,9 @@ script_name="set-xauth-cookies.sh"
 qualified_script="/usr/local/bin/${script_name}"
 log info "Installing '${qualified_script}'"
 
+# The current shell supplies the heredoc as standard input. sudo gives tee the
+# permission needed to write under /usr/local/bin. tee also copies its input to
+# standard output, which is discarded because only the installed file is needed.
 if ! sudo tee "${qualified_script}" >/dev/null <<'SCRIPT_EOF'; then
 #!/usr/bin/env bash
 
@@ -176,12 +190,18 @@ if [ -z "${DISPLAY}" ]; then
     handle_error 1 "DISPLAY is not set; XWayland is unavailable"
 fi
 
-if [ -z "${XDG_RUNTIME_DIR}" ]; then
-    handle_error 1 "XDG_RUNTIME_DIR is not set"
+# systemd normally provides XDG_RUNTIME_DIR to user services. Derive the
+# standard path as a fallback so this helper also works when the user manager
+# did not receive that variable from the graphical session.
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    desktop_user_id="$(id --user)" ||
+        handle_error 1 "Failed to obtain the desktop user ID"
+
+    XDG_RUNTIME_DIR="/run/user/${desktop_user_id}"
 fi
 
 if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
-    handle_error 1 "XDG_RUNTIME_DIR does not exist: ${XDG_RUNTIME_DIR}"
+    handle_error 1 "User runtime directory does not exist: ${XDG_RUNTIME_DIR}"
 fi
 
 if [ -z "${XAUTHORITY}" ]; then

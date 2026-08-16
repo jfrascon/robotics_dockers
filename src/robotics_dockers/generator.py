@@ -28,9 +28,6 @@ def generate_docker_context(config: DockerContextConfig) -> DockerContextResult:
 
 
 def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, ResourceSpec]:
-    # Jinja receives the same concise identity names as the Python model. The
-    # Dockerfile template adds the ROBOTICS_DOCKERS_* prefix only where it emits
-    # the public environment-variable contract stored in the image.
     if config.ros_distro == 'humble':
         ros_discovery_env_name = 'ROS_LOCALHOST_ONLY'
         ros_discovery_env_value = '1'
@@ -43,11 +40,6 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             'Dockerfile.j2',
             {
                 'base_img': config.base_img,
-                'user': config.user,
-                'user_id': config.user_id,
-                'user_home': config.user_home,
-                'primary_group': config.primary_group,
-                'primary_group_id': config.primary_group_id,
                 'ros_distro': config.ros_distro,
                 'ros_discovery_env_name': ros_discovery_env_name,
                 'ros_discovery_env_value': ros_discovery_env_value,
@@ -63,26 +55,23 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             {
                 'base_img': config.base_img,
                 'img_id': config.img_id,
-                'user': config.user,
                 'ros_distro': config.ros_distro,
                 'rosdep_packages_dir': config.rosdep_packages_dir,
                 'rosdep_packages_dir_mode': config.rosdep_packages_dir_mode,
             },
             True,
         ],
-        'docker-compose-dev.yaml': [
+        'compose_files/docker-compose.yaml': [
             'docker-compose.yaml.j2',
             {
                 'service': f'{config.img_id.replace(":", "_").replace("/", "_")}_cont',
                 'img_id': config.img_id,
-                'user_home': config.user_home,
-                'user_id': config.user_id,
-                'primary_group_id': config.primary_group_id,
                 # Workspaces are deliberately outside the home so mounting them
                 # cannot hide the environment files installed in the home.
                 'img_workspace_dir': '/workspace',
                 'img_datasets_dir': '/datasets',
                 'use_host_nvidia_driver': config.use_host_nvidia_driver,
+                'enable_workspace_mount': config.enable_workspace_mount,
             },
             False,
         ],
@@ -116,11 +105,9 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             False,
         ],
         '.resources/update_image_user.sh': ['update_image_user.sh', True],
-        'Dockerfile.update-user': [
-            'Dockerfile.update-user',
-            {'user': config.user, 'user_home': config.user_home},
-            False,
-        ],
+        'env_files/.gitkeep': [None, False],
+        'robotics_dockers_user_env.py': ['robotics_dockers_user_env.py', True],
+        'Dockerfile_update_user': ['Dockerfile_update_user', False],
     }
 
     items_to_install['.resources/colcon_mixin_metadata.sh'] = ['colcon_mixin_metadata.sh', True]

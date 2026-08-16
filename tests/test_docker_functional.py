@@ -122,15 +122,7 @@ def entrypoint_test_image(ubuntu_image: str, tmp_path_factory: pytest.TempPathFa
     )
     context = tmp_path_factory.mktemp(f'rendered-entrypoint-{ubuntu_version}')
     result = generate_docker_context(
-        DockerContextConfig(
-            ros_distro=ros_distro,
-            img_id='local/entrypoint-functional-test:latest',
-            user='jfr',
-            user_id=1001,
-            primary_group='jfr',
-            primary_group_id=1001,
-            output_dir=context,
-        )
+        DockerContextConfig(ros_distro=ros_distro, img_id='local/entrypoint-functional-test:latest', output_dir=context)
     )
     dockerfile = result.context_dir / 'Dockerfile.entrypoint-test'
     dockerfile.write_text(
@@ -195,6 +187,62 @@ printf 'VERSION=%s ACCOUNT=%s\n' \
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert f'VERSION={expected_version}' in completed.stdout
+
+
+def test_ros_source_sanitizer_accepts_a_clean_apt_configuration(ubuntu_image: str, tmp_path: Path) -> None:
+    """No legacy ROS source is a successful no-op, not a grep failure."""
+    install_ros = resources.files('robotics_dockers.resources').joinpath('install_ros2.sh').read_text()
+    entry_point_marker = '\n# Entry point\n'
+    assert entry_point_marker in install_ros
+    function_definitions = install_ros.split(entry_point_marker, maxsplit=1)[0]
+    sanitizer_test = tmp_path / 'sanitize-clean-apt.sh'
+    sanitizer_test.write_text(f'{function_definitions}\nsanitize clean-test-codename\n')
+
+    completed = _run(
+        ubuntu_image, 'bash /tmp/sanitize-clean-apt.sh', mounts=((sanitizer_test, '/tmp/sanitize-clean-apt.sh'),)
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_ros_source_sanitizer_preserves_unrelated_sources_and_keys(ubuntu_image: str, tmp_path: Path) -> None:
+    """Removing a legacy ROS line must not remove neighboring sources or their key file."""
+    install_ros = resources.files('robotics_dockers.resources').joinpath('install_ros2.sh').read_text()
+    entry_point_marker = '\n# Entry point\n'
+    assert entry_point_marker in install_ros
+    function_definitions = install_ros.split(entry_point_marker, maxsplit=1)[0]
+    sanitizer_test = tmp_path / 'sanitize-mixed-apt.sh'
+    sanitizer_test.write_text(
+        f"""{function_definitions}
+mkdir -p /etc/apt/keyrings /etc/apt/sources.list.d || exit 1
+legacy_key=/etc/apt/keyrings/legacy-ros-test.gpg
+mixed_sources=/etc/apt/sources.list.d/robotics-dockers-mixed-test.list
+commented_sources=/etc/apt/sources.list.d/robotics-dockers-commented-test.list
+: >"${{legacy_key}}" || exit 1
+cat >"${{mixed_sources}}" <<'EOF'
+# Keep this project comment.
+deb [signed-by=/etc/apt/keyrings/legacy-ros-test.gpg] http://packages.ros.org/ros2/ubuntu clean-test-codename main
+deb [signed-by=/etc/apt/keyrings/vendor-test.gpg] https://vendor.example/ubuntu clean-test-codename main
+EOF
+cat >"${{commented_sources}}" <<'EOF'
+# Keep this explanation even when no apt source remains below it.
+deb http://packages.ros.org/ros2/ubuntu clean-test-codename main
+EOF
+sanitize clean-test-codename || exit 1
+grep --quiet 'vendor.example' "${{mixed_sources}}" || exit 1
+if grep --quiet 'packages.ros.org' "${{mixed_sources}}"; then exit 1; fi
+[ -f "${{commented_sources}}" ] || exit 1
+grep --quiet 'Keep this explanation' "${{commented_sources}}" || exit 1
+if grep --quiet 'packages.ros.org' "${{commented_sources}}"; then exit 1; fi
+[ -f "${{legacy_key}}" ] || exit 1
+"""
+    )
+
+    completed = _run(
+        ubuntu_image, 'bash /tmp/sanitize-mixed-apt.sh', mounts=((sanitizer_test, '/tmp/sanitize-mixed-apt.sh'),)
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def test_configure_image_user_creates_exact_locked_identity(ubuntu_image: str) -> None:
@@ -492,15 +540,7 @@ def test_generated_adapter_dockerfile_updates_image_contract(ubuntu_image: str, 
     )
     context = tmp_path / 'context'
     generate_docker_context(
-        DockerContextConfig(
-            ros_distro=ros_distro,
-            img_id='local/adapter-functional-source:latest',
-            user='developer',
-            user_id=21001,
-            primary_group='robotics',
-            primary_group_id=22001,
-            output_dir=context,
-        )
+        DockerContextConfig(ros_distro=ros_distro, img_id='local/adapter-functional-source:latest', output_dir=context)
     )
     context.joinpath('Dockerfile.adapter-test-base').write_text(
         f"""FROM {ubuntu_image}
@@ -549,7 +589,7 @@ CMD ["bash"]
                 'docker',
                 'build',
                 '--file',
-                str(context / 'Dockerfile.update-user'),
+                str(context / 'Dockerfile_update_user'),
                 '--build-arg',
                 f'BASE_IMAGE={base_tag}',
                 '--build-arg',
@@ -1000,21 +1040,19 @@ def test_complete_generated_image_builds_for_selected_pair(request: pytest.Fixtu
 
     image_tag = f'robotics-dockers-full-build:{ros_distro}-{os.getpid()}'
     context = tmp_path / f'full-build-{ros_distro}'
-    result = generate_docker_context(
-        DockerContextConfig(
-            ros_distro=ros_distro,
-            img_id=image_tag,
-            user='developer',
-            user_id=21001,
-            primary_group='robotics',
-            primary_group_id=22001,
-            output_dir=context,
-        )
-    )
+    result = generate_docker_context(DockerContextConfig(ros_distro=ros_distro, img_id=image_tag, output_dir=context))
 
     try:
         build = subprocess.run(
-            [sys.executable, str(result.context_dir / 'build.py')],
+            [
+                sys.executable,
+                str(result.context_dir / 'build.py'),
+                'developer',
+                '21001',
+                '22001',
+                '--group',
+                'robotics',
+            ],
             cwd=result.context_dir,
             capture_output=True,
             text=True,

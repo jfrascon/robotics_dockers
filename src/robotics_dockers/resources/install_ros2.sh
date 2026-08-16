@@ -24,27 +24,9 @@ handle_error() {
     exit "${exit_code}"
 }
 
-# remove_gpg_key_file <sources_file> <deb_pattern>
-#
-# Removes any GPG key file referenced by signed-by= in lines matching deb_pattern.
-remove_gpg_key_file() {
-    local file="${1}"
-    local deb_pattern="${2}"
-
-    grep --extended-regexp "${deb_pattern}" "${file}" |
-        grep --only-matching --perl-regexp 'signed-by=\K[^] ]+' |
-        while IFS= read -r signed_by_path; do
-            if [ -f "${signed_by_path}" ]; then
-                log info "Removing GPG key file '${signed_by_path}'"
-                rm --force "${signed_by_path}" ||
-                    handle_error 1 "Could not remove legacy GPG key '${signed_by_path}'"
-            fi
-        done
-}
-
 # sanitize <version_codename>
 #
-# Removes legacy ROS 2 deb lines (and their GPG keys) from apt sources.
+# Removes legacy ROS 2 deb lines from apt sources.
 # Needed because on 2025-06-01 the key/repo management moved to ros2-apt-source.
 # Ref: https://discourse.ros.org/t/ros-signing-key-migration-guide/43937
 sanitize() {
@@ -52,10 +34,25 @@ sanitize() {
     local url="http://packages.ros.org/ros2/ubuntu"
     local ros_deb_pattern="^deb.*${url}[[:space:]]+${version_codename}[[:space:]]+main"
 
+    local grep_exit_code
     local matched_files
-    matched_files="$(find /etc/apt/ -type f -name '*.list' \
-        -exec grep --files-with-matches --extended-regexp "${ros_deb_pattern}" {} + 2>/dev/null)" ||
-        handle_error 1 "Could not inspect apt sources for legacy ROS entries"
+
+    matched_files="$(grep \
+        --recursive \
+        --include='*.list' \
+        --files-with-matches \
+        --extended-regexp \
+        "${ros_deb_pattern}" \
+        /etc/apt/)"
+
+    grep_exit_code="${?}"
+
+    # grep uses exit code 1 to report that no line matched. That is the normal
+    # result for a clean Ubuntu base image and leaves matched_files empty. Exit
+    # code 2 reports a real search or file-reading error.
+    if [ "${grep_exit_code}" -gt 1 ]; then
+        handle_error "${grep_exit_code}" "Could not inspect apt sources for legacy ROS entries"
+    fi
 
     # Nothing to sanitize, exit early to avoid a spurious empty-string iteration.
     if [ -z "${matched_files}" ]; then
@@ -63,22 +60,28 @@ sanitize() {
     fi
 
     while IFS= read -r matched_file; do
-        if [ "${matched_file}" = "/etc/apt/sources.list" ]; then
-            remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}" ||
-                handle_error 1 "Could not remove a key referenced by '${matched_file}'"
+        # A .list file may contain repositories unrelated to ROS. Remove only
+        # the matching ROS lines so sanitizing a base image never removes
+        # another vendor's apt configuration from the same file.
+        log info "ROS deb line found in '${matched_file}', removing matching lines"
+        sed --in-place --regexp-extended "\#${ros_deb_pattern}#d" "${matched_file}" ||
+            handle_error 1 "Could not remove the legacy ROS source from '${matched_file}'"
 
-            log info "ROS deb line found in '${matched_file}', removing matching lines"
-            sed --in-place --regexp-extended "\#${ros_deb_pattern}#d" "${matched_file}" ||
-                handle_error 1 "Could not remove the legacy ROS source from '${matched_file}'"
-        else
-            remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}" ||
-                handle_error 1 "Could not remove a key referenced by '${matched_file}'"
-
-            log info "ROS deb line found in '${matched_file}', removing file"
-            rm --force "${matched_file}" ||
-                handle_error 1 "Could not remove legacy ROS source file '${matched_file}'"
+        # Keep /etc/apt/sources.list even when it contains no active entries.
+        # Files below sources.list.d are removed only when no text remains.
+        # Preserve comments because they may explain local apt configuration.
+        if [ "${matched_file}" != "/etc/apt/sources.list" ]; then
+            if ! grep --quiet --extended-regexp '[^[:space:]]' "${matched_file}"; then
+                log info "Removing '${matched_file}' because it is empty after ROS cleanup"
+                rm --force "${matched_file}" ||
+                    handle_error 1 "Could not remove empty legacy ROS source file '${matched_file}'"
+            fi
         fi
     done <<<"${matched_files}"
+
+    # Do not delete key files referenced by removed lines. Another apt source
+    # may share that key, while an unreferenced file in /etc/apt/keyrings is not
+    # trusted automatically and is harmless.
 }
 
 # --------------------------------------------------------------------------------------------------
@@ -190,7 +193,13 @@ ros_apt_source_package="ros2-apt-source"
 
 if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
     gpg_dir="/etc/apt/keyrings"
-    gpg_file="${gpg_dir}/ros.gpg"
+    # Use a project-specific bootstrap filename. It cannot collide with a
+    # legacy ROS key that sanitize deliberately leaves untouched.
+    gpg_file="${gpg_dir}/robotics-dockers-ros-bootstrap.gpg"
+
+    if [ -e "${gpg_file}" ]; then
+        handle_error 1 "Temporary ROS key path '${gpg_file}' already exists"
+    fi
 
     if [ ! -d "${gpg_dir}" ]; then
         log info "Creating directory '${gpg_dir}'"

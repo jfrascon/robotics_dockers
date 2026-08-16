@@ -14,6 +14,14 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from robotics_dockers_user_env import (
+    ImageUserInfo,
+    UserEnvError,
+    inspect_image_user,
+    validate_account_name,
+    validate_numeric_id,
+)
+
 if __name__ == '__main__':
     # ----------------------------------------------------------------------------------------------
     # Main execution block
@@ -21,7 +29,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description=(
             'Builds the Docker image "{{ img_id }}" using the base image "{{ base_img }}", '
-            'with development user "{{ user }}" and "ROS 2 {{ ros_distro }}"'
+            'with the requested local development identity and "ROS 2 {{ ros_distro }}"'
         ),
         allow_abbrev=False,  # Disable prefix matching
         add_help=False,  # Add custom help message
@@ -30,6 +38,16 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-h', '--help', action='help', default=argparse.SUPPRESS, help='Show this help message and exit'
+    )
+
+    # Identity is selected when the image is built, not when robotics-dockers
+    # generates this source tree. Different developers can therefore share the
+    # same Dockerfile and construct local images that match their own hosts.
+    parser.add_argument('user_name', metavar='user-name', help='Development user name stored in the image')
+    parser.add_argument('user_id', metavar='user-id', help='Development user ID stored in the image')
+    parser.add_argument('group_id', metavar='group-id', help='Development user primary group ID stored in the image')
+    parser.add_argument(
+        '--group', metavar='GROUP_NAME', default=None, help='Primary group name. Default: user-name.'
     )
 
     parser.add_argument(
@@ -73,8 +91,27 @@ if __name__ == '__main__':
     # characters escaped. It is valid Python syntax and prevents a configured
     # path or label from breaking this generated script.
     base_img = {{ base_img | tojson }}
-    user = {{ user | tojson }}
     img_id_to_build = {{ img_id | tojson }}
+
+    try:
+        user = validate_account_name(args.user_name, 'development user name')
+        primary_group = validate_account_name(
+            args.group if args.group is not None else user, 'development primary group name'
+        )
+        user_id = validate_numeric_id(args.user_id, 'development UID')
+        primary_group_id = validate_numeric_id(args.group_id, 'development primary GID')
+    except UserEnvError as error:
+        print(f'Error: {error}', file=sys.stderr)
+        sys.exit(1)
+
+    user_home = f'/home/{user}'
+    requested_image_user = ImageUserInfo(
+        user=user,
+        user_id=user_id,
+        user_home=user_home,
+        primary_group=primary_group,
+        primary_group_id=primary_group_id,
+    )
 
     context_dir = this_file.parent
     dockerfile = context_dir.joinpath('Dockerfile')
@@ -114,6 +151,19 @@ if __name__ == '__main__':
 
     for k, v in labels.items():
         cmd += ['--label', f'{k}={v}']
+
+    # These arguments affect only the late identity layers in the Dockerfile.
+    # Package and ROS installation layers remain reusable when another host
+    # builds the same source tree with different account identifiers.
+    build_arguments = {
+        'ROBOTICS_DOCKERS_USER': user,
+        'ROBOTICS_DOCKERS_USER_ID': str(user_id),
+        'ROBOTICS_DOCKERS_USER_HOME': user_home,
+        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP': primary_group,
+        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID': str(primary_group_id),
+    }
+    for name, value in build_arguments.items():
+        cmd += ['--build-arg', f'{name}={value}']
 
     cmd.extend(['--tag', img_id_to_build])
     # Always declare a 'pkgs' build context so the Dockerfile mount is always valid.
@@ -158,7 +208,8 @@ if __name__ == '__main__':
 
     print(
         f'Building the Docker image "{img_id_to_build}" using the base image "{base_img}", '
-        f'with development user "{user}" and "ROS 2 {{ ros_distro }}"'
+        f'with development identity "{user}:{primary_group}" ({user_id}:{primary_group_id}) '
+        f'and "ROS 2 {{ ros_distro }}"'
     )
     print('Executing command:')
     # Quote for display exactly as a user would need to paste the argv into a
@@ -172,7 +223,29 @@ if __name__ == '__main__':
         exit_code = result.returncode
 
         if exit_code == 0:
-            print(f'\nDocker build process ended with SUCCESS for the image "{img_id_to_build}"')
+            # Inspect the image that Docker actually tagged. This verifies that
+            # the final image publishes the requested robotics-dockers identity
+            # contract. Environment files describe deployment machines and are
+            # therefore never created or modified by this build command.
+            try:
+                image_user = inspect_image_user(img_id_to_build)
+                if image_user != requested_image_user:
+                    raise UserEnvError(
+                        f'the image stores {image_user.user}:{image_user.primary_group} '
+                        f'({image_user.user_id}:{image_user.primary_group_id}) with home {image_user.user_home!r}; '
+                        f'the build requested {requested_image_user.user}:{requested_image_user.primary_group} '
+                        f'({requested_image_user.user_id}:{requested_image_user.primary_group_id}) with home '
+                        f'{requested_image_user.user_home!r}'
+                    )
+            except UserEnvError as error:
+                print(
+                    f'\nThe Docker image "{img_id_to_build}" was built successfully, but its identity metadata '
+                    f'failed validation: {error}\nThe image has not been removed.',
+                    file=sys.stderr,
+                )
+                exit_code = 1
+            else:
+                print(f'\nDocker build process ended with SUCCESS for the image "{img_id_to_build}"')
         else:
             print(
                 f'\nDocker build process ended with FAILURE (exit code {exit_code}) '
@@ -187,10 +260,13 @@ if __name__ == '__main__':
     except OSError as error:
         print(f'Error: could not start Docker: {error}', file=sys.stderr)
         exit_code = 1
-    finally:
 {% if rosdep_packages_dir_mode == 'cli' %}
+    finally:
         # Clean up the temporary empty pkgs directory if it was created.
         if not args.pkgs_dir and pkgs_dir.exists():
             shutil.rmtree(pkgs_dir, ignore_errors=True)
 {% endif %}
-        sys.exit(exit_code)
+
+    # Keep sys.exit outside the finally block. If an unexpected programming
+    # error occurs, Python skips this line and preserves the original traceback.
+    sys.exit(exit_code)

@@ -6,8 +6,8 @@ This document describes the current build-time identity architecture. It is a de
 
 The implementation separates five responsibilities:
 
-1. The Python package validates declarative generation input.
-2. The generated Dockerfile builds an exact development identity.
+1. The Python package validates reusable context-generation input.
+2. The generated `build.py` validates a local development identity and passes it to the Dockerfile.
 3. Editable extension directories customize apt, Python, Rust and the user environment.
 4. A small non-root entrypoint decides whether to load the configured development environment.
 5. An optional derivative-image adapter changes only numeric identity when rebuilding the original image is impractical.
@@ -27,7 +27,7 @@ robotics-dockers = "robotics_dockers.cli:main"
 `src/robotics_dockers/__main__.py` provides the equivalent module form:
 
 ```bash
-python -m robotics_dockers new user-name user-id group-id ros-distro img-id ...
+python -m robotics_dockers new ros-distro img-id ...
 ```
 
 `src/robotics_dockers/__init__.py` exports the stable Python API:
@@ -38,20 +38,14 @@ from robotics_dockers import DockerContextConfig, DockerContextResult, generate_
 
 ### Configuration flow
 
-`cli.py` owns argument parsing and presentation only. The `new` command accepts required fields as positionals in the order `user-name user-id group-id ros-distro img-id`, followed by optional long options. It constructs `DockerContextConfig`; the generator calls `resolve_config()` once before creating any output.
+`cli.py` owns argument parsing and presentation only. The `new` command accepts `ros-distro` and `img-id`, followed by optional long options. It constructs `DockerContextConfig`; the generator calls `resolve_config()` once before creating any output.
 
 `resolve_config()`:
 
 - validates the ROS distribution and image names;
-- validates local user and group names;
-- parses UID/GID as decimal digits;
-- normalizes leading zeroes;
-- enforces the inclusive 1000–4294967294 range;
-- derives `/home/<user>`;
-- defaults the primary group name to the user name;
 - identifies whether the ROS package path comes from `build.py`, a context-relative path or a host path.
 
-The returned `ResolvedDockerContextConfig` contains canonical integers and complete strings. Templates never need to reinterpret user input. `DockerContextResult.resolved_config` exposes the same object used for rendering, so the CLI and Python callers do not validate the configuration again merely to print a summary.
+The returned `ResolvedDockerContextConfig` contains the complete shared build definition. `DockerContextResult.resolved_config` exposes the same object used for rendering, so the CLI and Python callers do not validate the configuration again merely to print a summary.
 
 ### Generation
 
@@ -67,9 +61,13 @@ An explicit output directory must be absent or empty. The generator validates th
 
 ```text
 Dockerfile
-Dockerfile.update-user
+Dockerfile_update_user
 build.py
-docker-compose-dev.yaml
+compose_files/
+└── docker-compose.yaml
+robotics_dockers_user_env.py
+env_files/
+└── .gitkeep
 .resources/
 ├── configure_image_user.sh
 ├── configure_sudo.sh
@@ -100,6 +98,8 @@ There is no root entrypoint or runtime identity hook directory.
 
 The generated Dockerfile uses BuildKit bind mounts for inputs consumed by each phase. Mounted input changes participate in BuildKit cache invalidation and are not copied into the image layer. Keeping mounts phase-specific also prevents an apt customization from invalidating an unrelated Python phase.
 
+`build.py` accepts `user-name user-id group-id [--group GROUP_NAME]`. It validates and normalizes the account, passes the five `ROBOTICS_DOCKERS_USER*` values as Docker build arguments, and requires the completed image metadata to equal those values. It never creates a Compose environment file. Identity selection occurs at build time so the generated and committed context remains independent of one developer's host IDs.
+
 The phase order is:
 
 1. Install the base system and the shared `install_pkgs` helper.
@@ -121,7 +121,7 @@ System package cleanup remains in the same `RUN` phase that populated apt indexe
 
 Preparation hooks run before the project identity exists. The Dockerfile rejects symbolic links, selects only regular top-level `*.sh` files and orders them with `LC_ALL=C`. Examples remain inert because their names do not end in `.sh`.
 
-`configure_image_user.sh` repeats critical name, ID and home validation even though the generator already performed it. This makes direct use from a derived Dockerfile fail safely.
+`configure_image_user.sh` repeats critical name, ID and home validation even though `build.py` already performed it. This makes a direct `docker build` fail safely.
 
 Before its first account change, it counts local entries by:
 
@@ -179,7 +179,7 @@ Overriding Docker `ENTRYPOINT` bypasses this state machine. `docker exec` also d
 
 ## Existing-image adapter
 
-`Dockerfile.update-user` inherits a generated image and invokes `update_image_user.sh` as root. The helper requires the new environment metadata and refuses unknown/legacy source images.
+`Dockerfile_update_user` inherits a generated image and invokes `update_image_user.sh` as root. The helper requires the new environment metadata and refuses unknown/legacy source images. User name, group name and home are inherited from that metadata, so the reusable adapter does not embed a generation-time account.
 
 Its validation stage checks:
 
@@ -195,13 +195,15 @@ When the primary GID changes, the old group is renamed to `rd_old_<gid>[_n]` wit
 
 `usermod` independently transforms matching old UID and old primary GID ownership inside the home. Files with a different UID or auxiliary GID retain that component. Files outside the home are never modified.
 
-The generated adapter is tied to the source user name and home known by its generation context. The helper compares those expected values with the base image metadata before mutation. The derivative Dockerfile can therefore restore the validated textual `USER` and `WORKDIR` explicitly without redundant user-supplied build arguments.
+The helper receives the inherited source user name and home and verifies them before mutation. The derivative Dockerfile can therefore restore the validated textual `USER` and `WORKDIR` explicitly without redundant user-supplied build arguments.
 
 Account files and a recursive ownership traversal are not an atomic operation. The helper validates predictable failures and checks postconditions, but does not roll back a partial failure. The derivative layer can be large.
 
 ## Compose boundaries
 
-Compose contains literal UID/GID values rendered during generation. It does not override `user:`. `/workspace` and `/datasets` keep editable host mounts away from the installed home environment.
+Compose contains no literal developer UID/GID and does not override `user:`. It requires `ROBOTICS_DOCKERS_USER_ID` and `ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID` during interpolation. Compose definitions belong below `compose_files/`, while runtime-machine configuration belongs in a deliberately selected file below `env_files/`, not in the image build command. The standalone generator comments the `/workspace` bind mount by default because it does not know a project path; callers such as `ros_project_generator` can enable it explicitly. `/workspace` and `/datasets` keep editable host mounts away from the installed home environment.
+
+`robotics_dockers_user_env.py` is the single image-inspection implementation used by `build.py` and available as a command. Without `--output` it prints the five validated identity variables. With `--output`, it atomically creates or updates all five variables and preserves unrelated settings, comments and permissions. The user supplies machine-specific paths and chooses the environment file explicitly with `docker compose --env-file`.
 
 `group_add` supplies render-device access as a supplementary GID. NVIDIA device requests are rendered separately. `NET_ADMIN` remains commented because normal ROS networking does not require permission to reconfigure host/container interfaces.
 
@@ -211,8 +213,9 @@ Rootless Docker and daemon user-namespace remapping are outside this identity co
 
 The suite is divided by responsibility:
 
-- `test_cli.py`: required positionals, obsolete-option rejection and numeric validation;
-- `test_generator.py`: rendered context, metadata, Compose literals, cache flags and configuration modes;
+- `test_cli.py`: required generation positionals and obsolete-option rejection;
+- `test_generator.py`: rendered generic context, build-time identity arguments, absence of build-time environment-file writes, cache flags and configuration modes;
+- `test_user_env.py`: image metadata parsing and non-destructive maintenance of deliberately selected environment files;
 - `test_resources.py`: packaged resources, shell syntax, environment order and structural build contracts;
 - `test_docker_functional.py`: real account collisions, Ubuntu preparation examples, sudoers, apt input validation, user hooks, adapter ownership and the generated entrypoint on an ephemeral Ubuntu-based test image.
 

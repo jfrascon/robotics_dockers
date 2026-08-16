@@ -73,18 +73,28 @@ bash /tmp/install_extra_apt.sh /tmp/extra_d_apt || {
 EOF
 
 # The development identity is placed after common package layers so changing a
-# name or numeric identifier can reuse those layers.
-ENV ROBOTICS_DOCKERS_USER={{ user | tojson }} \
-    ROBOTICS_DOCKERS_USER_ID="{{ user_id }}" \
-    ROBOTICS_DOCKERS_USER_HOME={{ user_home | tojson }} \
-    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP={{ primary_group | tojson }} \
-    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID="{{ primary_group_id }}"
+# name or numeric identifier can reuse those layers. No defaults are provided:
+# build.py validates and supplies every value, while a direct docker build must
+# provide the same complete contract explicitly.
+ARG ROBOTICS_DOCKERS_USER
+ARG ROBOTICS_DOCKERS_USER_ID
+ARG ROBOTICS_DOCKERS_USER_HOME
+ARG ROBOTICS_DOCKERS_USER_PRIMARY_GROUP
+ARG ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID
 
-LABEL io.github.jfrascon.robotics-dockers.user.name={{ user | tojson }} \
-    io.github.jfrascon.robotics-dockers.user.id="{{ user_id }}" \
-    io.github.jfrascon.robotics-dockers.user.home={{ user_home | tojson }} \
-    io.github.jfrascon.robotics-dockers.user.primary-group.name={{ primary_group | tojson }} \
-    io.github.jfrascon.robotics-dockers.user.primary-group.id="{{ primary_group_id }}"
+# ARG values disappear after the build stage. ENV keeps the final identity
+# available to the entrypoint, derived images and inspection tools.
+ENV ROBOTICS_DOCKERS_USER="${ROBOTICS_DOCKERS_USER}" \
+    ROBOTICS_DOCKERS_USER_ID="${ROBOTICS_DOCKERS_USER_ID}" \
+    ROBOTICS_DOCKERS_USER_HOME="${ROBOTICS_DOCKERS_USER_HOME}" \
+    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP="${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" \
+    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID="${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}"
+
+LABEL io.github.jfrascon.robotics-dockers.user.name="${ROBOTICS_DOCKERS_USER}" \
+    io.github.jfrascon.robotics-dockers.user.id="${ROBOTICS_DOCKERS_USER_ID}" \
+    io.github.jfrascon.robotics-dockers.user.home="${ROBOTICS_DOCKERS_USER_HOME}" \
+    io.github.jfrascon.robotics-dockers.user.primary-group.name="${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" \
+    io.github.jfrascon.robotics-dockers.user.primary-group.id="${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}"
 
 # Preparation hooks are an explicit escape hatch for known base-image accounts.
 # They run as root before any project identity is created. Only regular .sh files

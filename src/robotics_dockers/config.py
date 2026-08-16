@@ -5,40 +5,29 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from robotics_dockers.errors import (
-    InvalidDockerImageNameError,
-    InvalidImageIdentityError,
-    InvalidRosdepPackagesDirError,
-    InvalidRosDistroError,
-)
+from robotics_dockers.errors import InvalidDockerImageNameError, InvalidRosdepPackagesDirError, InvalidRosDistroError
 
 ROS_DISTROS: dict[str, str] = {'humble': '22.04', 'jazzy': '24.04'}
 
 DEFAULT_META_TITLE = 'Docker image with ROS 2'
 DEFAULT_META_DESC = 'Docker image for development and testing'
-MIN_USER_GROUP_ID = 1000
-MAX_USER_GROUP_ID = 4294967294
-LOCAL_ACCOUNT_NAME_PATTERN = re.compile(r'[a-z_][a-z0-9_-]{0,31}')
 
 
 @dataclass(frozen=True)
 class DockerContextConfig:
-    """User input expressed with concise names local to the Python API.
+    """Configuration that is shared by every developer building this context.
 
-    Templates publish the identity as ``ROBOTICS_DOCKERS_*`` environment
-    variables. That prefix belongs to the image's public environment contract;
-    repeating it on every Python attribute would not add information here.
+    The development account is intentionally absent. Its name and numeric
+    identifiers belong to the machine performing the later image build, not to
+    source files that may be committed and shared by several developers.
     """
 
     ros_distro: str
     img_id: str
-    user: str
-    user_id: int | str
-    primary_group_id: int | str
-    primary_group: str | None = None
     output_dir: Path | str | None = None
     base_img: str | None = None
     use_host_nvidia_driver: bool = False
+    enable_workspace_mount: bool = False
     meta_title: str = DEFAULT_META_TITLE
     meta_desc: str = DEFAULT_META_DESC
     meta_authors: str | None = None
@@ -50,7 +39,7 @@ class DockerContextResult:
     context_dir: Path
     generated_files: tuple[Path, ...]
     # Expose the exact normalized configuration used to render the context.
-    # Callers can print IDs, defaulted names and paths without resolving and
+    # Callers can print defaults and resolved paths without resolving and
     # validating the original input a second time.
     resolved_config: ResolvedDockerContextConfig
 
@@ -59,14 +48,13 @@ class DockerContextResult:
 class ResolvedDockerContextConfig:
     ros_distro: str
     img_id: str
-    user: str
-    user_id: int
-    user_home: str
-    primary_group: str
-    primary_group_id: int
     output_dir: Path | None
     base_img: str
     use_host_nvidia_driver: bool
+    # Standalone image contexts do not necessarily belong to a source project.
+    # Keep their workspace bind mount disabled unless the caller explicitly
+    # knows that HOST_ROS_WORKSPACE is part of the generated runtime contract.
+    enable_workspace_mount: bool
     meta_title: str
     meta_desc: str
     meta_authors: str
@@ -87,10 +75,6 @@ def get_ros_distros_help() -> str:
 
 
 def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
-    user = config.user.strip()
-    primary_group = config.primary_group.strip() if config.primary_group is not None else user
-    user_id = _normalize_local_id(config.user_id, 'UID')
-    primary_group_id = _normalize_local_id(config.primary_group_id, 'primary GID')
     ros_distro = config.ros_distro.strip().lower()
     img_id = config.img_id.strip()
     base_img = config.base_img.strip() if config.base_img is not None else ''
@@ -110,9 +94,6 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
     if not is_valid_docker_image_name(img_id):
         raise InvalidDockerImageNameError(f"Invalid Docker image name: '{img_id}'")
 
-    _validate_local_account_name(user, 'user')
-    _validate_local_account_name(primary_group, 'primary group')
-
     if rosdep_packages_dir == '':
         raise InvalidRosdepPackagesDirError('rosdep_packages_dir must be a non-empty path when provided.')
 
@@ -121,47 +102,16 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
     return ResolvedDockerContextConfig(
         ros_distro=ros_distro,
         img_id=img_id,
-        user=user,
-        user_id=user_id,
-        user_home=f'/home/{user}',
-        primary_group=primary_group,
-        primary_group_id=primary_group_id,
         output_dir=output_dir,
         base_img=base_img,
         use_host_nvidia_driver=config.use_host_nvidia_driver,
+        enable_workspace_mount=config.enable_workspace_mount,
         meta_title=config.meta_title,
         meta_desc=config.meta_desc,
         meta_authors=meta_authors,
         rosdep_packages_dir=rosdep_packages_dir,
         rosdep_packages_dir_mode=rosdep_packages_dir_mode,
     )
-
-
-def _validate_local_account_name(value: str, label: str) -> None:
-    """Validate the deliberately narrow local account-name contract used by generated images."""
-    if not LOCAL_ACCOUNT_NAME_PATTERN.fullmatch(value):
-        raise InvalidImageIdentityError(
-            f"Invalid {label} '{value}'. It must start with a lowercase letter or '_', contain only lowercase "
-            "letters, digits, '-' or '_', and contain at most 32 characters."
-        )
-
-
-def _normalize_local_id(value: int | str, label: str) -> int:
-    """Return a canonical decimal UID/GID without relying on shell octal parsing rules."""
-    if isinstance(value, bool):
-        raise InvalidImageIdentityError(f'Invalid {label} {value!r}: a decimal integer is required.')
-
-    text = str(value).strip()
-    if not re.fullmatch(r'[0-9]+', text):
-        raise InvalidImageIdentityError(f"Invalid {label} '{text}': only decimal digits are allowed.")
-
-    normalized = int(text, 10)
-    if not MIN_USER_GROUP_ID <= normalized <= MAX_USER_GROUP_ID:
-        raise InvalidImageIdentityError(
-            f'Invalid {label} {normalized}: expected a value between {MIN_USER_GROUP_ID} and {MAX_USER_GROUP_ID}.'
-        )
-
-    return normalized
 
 
 def is_valid_docker_image_name(name: str) -> bool:

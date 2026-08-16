@@ -27,8 +27,6 @@ services:
     # Usually not needed when all ROS 2 nodes run inside the same container.
     # ipc: host
 
-    working_dir: {{ user_home }}
-
     tty: true
     stdin_open: true
 
@@ -49,7 +47,7 @@ services:
       # Compose creates the volatile XDG directory with the same numeric identity
       # that was stored in the image. The entrypoint validates it but never
       # changes its mode or ownership.
-      - /run/user/{{ user_id }}:mode=700,uid={{ user_id }},gid={{ primary_group_id }}
+      - "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}:mode=700,uid=${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image},gid=${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID:?ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID must match the primary GID stored in the Docker image}"
 
     volumes:
       # +------------------+
@@ -57,9 +55,17 @@ services:
       # +------------------+
       # Keep project mounts outside the development home so they cannot hide the
       # environment files installed there. No runtime ownership repair occurs.
-      # ${HOST_ROS_WORKSPACE:?message} makes Compose stop during interpolation
-      # with that message when HOST_ROS_WORKSPACE is unset or empty.
-      - ${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}:{{ img_workspace_dir }}
+      # The :? form makes Compose stop during interpolation with the stated
+      # explanation when a required local value is unset or empty.
+      {% if enable_workspace_mount %}
+      - "${HOST_ROS_WORKSPACE:?HOST_ROS_WORKSPACE must match the ROS workspace path on this host}:{{ img_workspace_dir }}"
+      {% else %}
+      # robotics_dockers does not know whether this image belongs to a project
+      # or where that project lives on the host. Uncomment the following line
+      # when a workspace must be mounted, then define HOST_ROS_WORKSPACE in the
+      # environment file selected with docker compose --env-file.
+      # - "${HOST_ROS_WORKSPACE:?HOST_ROS_WORKSPACE must match the ROS workspace path on this host}:{{ img_workspace_dir }}"
+      {% endif %}
 
       # +------------------+
       # | Dataset mappings |
@@ -75,10 +81,8 @@ services:
       #
       #   scripts/install-docker-gui-support.sh
       - type: bind
-        # ${HOST_XAUTHORITY_FILE:?message} makes Compose stop during interpolation
-        # when the required host path is unset or empty.
-        source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"
-        target: "/run/user/{{ user_id }}/docker-xwayland.xauth"
+        source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must match the Xauthority file path on this host}"
+        target: "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}/docker-xwayland.xauth"
         read_only: true
         bind:
           create_host_path: false
@@ -110,7 +114,7 @@ services:
       # The :? syntax makes docker compose fail early if SSH_AUTH_SOCK is not
       # set in the host shell.
       #
-      #   - ${SSH_AUTH_SOCK:?SSH_AUTH_SOCK must be set}:/ssh-agent
+      #   - "${SSH_AUTH_SOCK:?SSH_AUTH_SOCK must match the SSH agent socket path on this host}:/ssh-agent"
 
       # +-----------------+
       # | Device mappings |
@@ -130,11 +134,9 @@ services:
 
     environment:
       # Use the host XWayland display and the Xauthority file mounted above.
-      # ${DISPLAY:?message} makes Compose stop during interpolation when DISPLAY
-      # is unset or empty.
-      DISPLAY: "${DISPLAY:?DISPLAY must be set}"
-      XDG_RUNTIME_DIR: "/run/user/{{ user_id }}"
-      XAUTHORITY: "/run/user/{{ user_id }}/docker-xwayland.xauth"
+      DISPLAY: "${DISPLAY:?DISPLAY must match the graphical display available on this host}"
+      XDG_RUNTIME_DIR: "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}"
+      XAUTHORITY: "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}/docker-xwayland.xauth"
       CONTAINER_ROS_WORKSPACE: "{{ img_workspace_dir }}"
 
       # Force Qt applications such as RViz and Gazebo to use X11 through
@@ -158,20 +160,23 @@ services:
     #   stat -c %g /dev/dri/renderD128
     #
     # How to provide RENDER_GID (choose one):
-    #   1. .env file next to this docker-compose file:
+    #   1. Put the value in an environment file:
+    #        # env_files/production.env
     #        RENDER_GID=992
+    #      Then select that file explicitly when Compose starts:
+    #        docker compose --env-file env_files/production.env --file compose_files/docker-compose.yaml up
     #   2. Export in your shell before running docker compose:
     #        export RENDER_GID=$(stat -c %g /dev/dri/renderD128)
+    #        docker compose --file compose_files/docker-compose.yaml up
     #   3. Inline when running docker compose:
-    #        RENDER_GID=$(stat -c %g /dev/dri/renderD128) docker compose up
+    #        RENDER_GID=$(stat -c %g /dev/dri/renderD128) \
+    #          docker compose --file compose_files/docker-compose.yaml up
     #
     # group_add is supplementary: it does not replace the primary GID stored in
     # the image and therefore does not prevent the entrypoint from loading the
     # development environment. Docker also applies it to docker exec processes.
     group_add:
-      # ${RENDER_GID:?message} makes Compose stop during interpolation when the
-      # render-device GID is unset or empty.
-      - "${RENDER_GID:?RENDER_GID must be set}"
+      - "${RENDER_GID:?RENDER_GID must match the GID owning the selected renderD device on this host}"
 
     # init: true enables a tiny init (tini) as PID 1 inside the container.
     # It forwards signals (SIGTERM/SIGINT) to the app and reaps zombie

@@ -4,7 +4,7 @@
   <img src="docs/assets/logo.png" alt="robotics-dockers logo" width="300">
 </p>
 
-`robotics-dockers` generates Docker build contexts for ROS 2 development. Each generated image contains one development account whose user ID and primary group ID are chosen at build time.
+`robotics-dockers` generates reusable Docker build contexts for ROS 2 development. The generated files contain no developer-specific UID or GID. Each developer chooses the image account when running the generated `build.py`.
 
 This design is deliberately simple at runtime: the container starts directly as the configured development user. It does not start as root, rewrite account files, traverse the home directory or change file ownership when the container starts.
 
@@ -23,7 +23,7 @@ The generated image then creates files on `/workspace` with the correct host own
 
 This release intentionally breaks the former runtime-remapping contract. Old generated contexts must be regenerated. Unknown accounts inherited from a base image are never renamed or deleted automatically; resolve a known collision with an explicit preparation hook or edit the generated Dockerfile.
 
-## Install
+## Installation
 
 Requirements:
 
@@ -31,42 +31,59 @@ Requirements:
 - Docker Engine with BuildKit;
 - Docker Compose v2 for the generated Compose file.
 
-Install the project in a virtual environment:
+Keep Python environments outside the source tree. This makes the separation between the cloned repository and the installed Python runtime explicit.
+
+### User installation
+
+Use this installation when you want to generate Docker contexts without modifying `robotics_dockers` itself:
 
 ```bash
 git clone https://github.com/jfrascon/robotics_dockers.git
 cd robotics_dockers
-python3 -m venv .venv
-source .venv/bin/activate
+
+python3 -m venv "${HOME}/.python_venvs/robotics-dockers"
+source "${HOME}/.python_venvs/robotics-dockers/bin/activate"
+
+python -m pip install --upgrade pip
 python -m pip install .
 ```
 
-For repository development:
+Activate the same environment in each new terminal before using the command:
 
 ```bash
+source "${HOME}/.python_venvs/robotics-dockers/bin/activate"
+robotics-dockers --help
+```
+
+### Developer installation
+
+Use a separate editable installation when changing the generator itself:
+
+```bash
+git clone https://github.com/jfrascon/robotics_dockers.git
+cd robotics_dockers
+
+python3 -m venv "${HOME}/.python_venvs/robotics-dockers-dev"
+source "${HOME}/.python_venvs/robotics-dockers-dev/bin/activate"
+
+python -m pip install --upgrade pip
 python -m pip install -e '.[dev]'
 ```
+
+The editable installation keeps imports connected to the checkout, so Python code changes are available without reinstalling the package. Dependencies, package metadata and command entry points remain isolated in the external virtual environment.
 
 [`scripts/install_docker.sh`](scripts/install_docker.sh) can install Docker from Docker's official Ubuntu repository. Docker group membership grants root-equivalent control over the host Docker daemon; use it only on a trusted development machine.
 
 ## Generate an image project
 
-Required fields are positional, ordered from the local development identity to the generated image target:
+Only the ROS distribution and image name are required while generating the reusable context:
 
 ```bash
-robotics-dockers new developer 1000 1000 jazzy local/robotics-jazzy:latest \
-    --group robotics \
+robotics-dockers new jazzy local/robotics-jazzy:latest \
     --output ./docker-jazzy
 ```
 
-The positional order is `user-name user-id group-id ros-distro img-id`. If `--group` is omitted, it defaults to `user-name`:
-
-```bash
-robotics-dockers new developer "$(id --user)" "$(id --group)" jazzy local/robotics-jazzy:latest \
-    --output ./docker-jazzy
-```
-
-UID and GID must contain decimal digits and resolve to a value from 1000 through 4294967294. Leading zeroes are accepted by the generator and stored in canonical decimal form. User and group names use a deliberately narrow local-account format: lowercase letters, digits, `_` and `-`, with a lowercase letter or `_` first and at most 32 characters.
+The account is intentionally absent from this command. A generated Dockerfile can therefore be committed and shared without embedding one developer's host identity.
 
 The selected output directory must be absent or empty. Generation refuses existing content before writing anything so rerunning the command cannot silently destroy edited resources.
 
@@ -86,9 +103,13 @@ The output contains:
 ```text
 docker-jazzy/
 ├── Dockerfile
-├── Dockerfile.update-user
+├── Dockerfile_update_user
 ├── build.py
-├── docker-compose-dev.yaml
+├── compose_files/
+│   └── docker-compose.yaml
+├── robotics_dockers_user_env.py
+├── env_files/
+│   └── .gitkeep
 └── .resources/
     ├── user_preparation.d/
     ├── extra.d/
@@ -103,8 +124,12 @@ Review `.resources/` and then run:
 
 ```bash
 cd docker-jazzy
-python3 build.py
+python3 build.py developer "$(id --user)" "$(id --group)"
 ```
+
+The positional order is `user-name user-id group-id`. `--group GROUP_NAME` selects another primary group name; when omitted, the group name equals `user-name`.
+
+UID and GID must contain decimal digits and resolve to a value from 1000 through 4294967294. Leading zeroes are accepted and normalized to decimal form. User and group names use a deliberately narrow local-account format: lowercase letters, digits, `_` and `-`, with a lowercase letter or `_` first and at most 32 characters.
 
 `build.py` reuses Docker's BuildKit cache by default. Its options are:
 
@@ -117,6 +142,8 @@ The generated Dockerfile keeps stable system and ROS installation phases before 
 The base-system phase intentionally runs `apt-get dist-upgrade`. Each requested package set is passed to one real apt invocation. A separate simulation would repeat apt's dependency resolution without making the real installation transactional. If apt fails, Docker rejects the incomplete build layer.
 
 The generated Dockerfile owns the static OCI title, description and authors. `build.py` adds only `org.opencontainers.image.created`, because that timestamp belongs to the actual build.
+
+After Docker reports a successful build, `build.py` reads the five identity variables back from the resulting image and requires them to equal the requested identity. This verifies that the build arguments reached the final stage. It does not create or modify a Compose environment file: building an image and describing a machine that will run it are separate operations.
 
 ## Development identity
 
@@ -131,6 +158,22 @@ ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID
 ```
 
 Equivalent `io.github.jfrascon.robotics-dockers.user.*` labels make the numeric and textual identity inspectable without starting a container.
+
+Inspect an existing image with the generated helper:
+
+```bash
+python3 robotics_dockers_user_env.py local/robotics-jazzy:latest
+```
+
+To create or refresh the Compose identity values without rebuilding the image:
+
+```bash
+python3 robotics_dockers_user_env.py \
+    local/robotics-jazzy:latest \
+    --output env_files/production.env
+```
+
+The helper writes all five `ROBOTICS_DOCKERS_USER*` values obtained from the image. In an existing file, it replaces those variables in place and preserves host paths, display settings, comments, custom variables and file permissions. It does not invent values that depend on the target machine.
 
 During the build, `configure_image_user.sh` accepts these states:
 
@@ -284,13 +327,16 @@ A custom mount below the home is allowed, but it can hide `.env.rc`, `.ros.rc`, 
 
 ## Compose, graphics and devices
 
-The generated Compose service omits `user:` and inherits the image's development user. It uses concrete build-time UID/GID values for `/run/user/<uid>` and the Xauthority target; no host identity variables are required.
+The generated Compose service omits `user:` and inherits the image's development user. The reusable Compose source refers to `ROBOTICS_DOCKERS_USER_ID` and `ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID`; neither value is rendered into the file.
+
+Compose must interpolate those values before the container exists, so it cannot read them from the environment stored inside the image. Use `robotics_dockers_user_env.py --output` to copy the complete image identity into a chosen Compose environment file after building or pulling an image.
 
 Compose creates `/run/user/<uid>` as a `tmpfs` owned by the development UID/GID with mode `0700` and sets `XDG_RUNTIME_DIR`. The entrypoint validates the exact path, directory type, owner and mode. A direct `docker run` may omit `XDG_RUNTIME_DIR` when the command does not need it.
 
 The template retains:
 
-- `/workspace` and optional `/datasets` mounts;
+- a `/workspace` mount that is commented in standalone contexts and can be enabled by API clients that own a project workspace;
+- an optional `/datasets` mount;
 - `/dev/dri`, USB and input device mappings;
 - `group_add` using `RENDER_GID` for `/dev/dri/renderD*`;
 - NVIDIA Compose device reservations when generation used `--nvidia`;
@@ -303,11 +349,45 @@ Find the render-device GID with:
 stat -c %g /dev/dri/renderD128
 ```
 
-Put `RENDER_GID`, `HOST_ROS_WORKSPACE`, `DISPLAY` and `HOST_XAUTHORITY_FILE` in a Compose `.env` file or export them before `docker compose up`.
+The `compose_files/` directory is the place for alternative Compose definitions. The generator installs
+`compose_files/docker-compose.yaml`; a project may add other files for machines or deployment modes that need different
+services, mounts or devices.
+
+The empty `env_files/` directory is a deliberate place for configurations belonging to the machines that run the image. For example, a project can commit `env_files/production.env` and `env_files/robot-a.env` when those values are shared deployment configuration. Do not store secrets in these files.
+
+First copy the image identity into the selected file:
+
+```bash
+python3 robotics_dockers_user_env.py \
+    local/robotics-jazzy:latest \
+    --output env_files/production.env
+```
+
+Then add the host-specific values required by the enabled Compose features:
+
+```dotenv
+# Required only when the generated workspace mount is enabled:
+HOST_ROS_WORKSPACE=/absolute/path/to/the/workspace
+HOST_XAUTHORITY_FILE=/run/user/1000/docker-xwayland.xauth
+DISPLAY=:1
+RENDER_GID=992
+```
+
+The helper does not create these host values. Compose uses `${VARIABLE:?explanation}` for every required value, so `docker compose up` stops with a direct message when one is absent or empty. `TERM` is optional and retains its default.
+
+Select the environment file explicitly when starting Compose. Docker Compose does not automatically search arbitrary files below `env_files/`:
+
+```bash
+cd docker-jazzy
+docker compose \
+    --env-file env_files/production.env \
+    --file compose_files/docker-compose.yaml \
+    up
+```
 
 When `--nvidia` is selected, the runtime entrypoint verifies both a usable `libcuda.so.1` and an NVIDIA device. The host needs the NVIDIA driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). `group_add` for a render node and NVIDIA device reservations solve different access paths and can coexist.
 
-[`scripts/install-docker-gui-support.sh`](scripts/install-docker-gui-support.sh) configures an XWayland Xauthority file on a Wayland host. The generated Compose file mounts that single file read-only instead of exposing the host `.ssh` or complete home.
+[`scripts/install-docker-gui-support.sh`](scripts/install-docker-gui-support.sh) configures an XWayland Xauthority file on a Wayland host. When `XDG_RUNTIME_DIR` is not exported, it uses the standard `/run/user/<host-uid>` path. That directory must already exist because the systemd login session, not this script, owns its creation and lifecycle. The generated Compose file mounts the resulting file read-only instead of exposing the host `.ssh` or complete home.
 
 ## VS Code Dev Containers
 
@@ -315,38 +395,36 @@ VS Code can use the image without changing its UID because the identity was alre
 
 ```json
 {
-  "remoteUser": "developer",
   "updateRemoteUserUID": false,
   "workspaceFolder": "/workspace"
 }
 ```
 
-Keep `remoteUser` equal to the generated account name. Setting `updateRemoteUserUID` to `true` would reintroduce a second UID adaptation mechanism and make the image metadata and hard-coded Compose paths incorrect.
+Leaving `remoteUser` and `containerUser` unset makes Dev Containers inherit the image's final `USER`, regardless of the account name chosen by `build.py`. Setting `updateRemoteUserUID` to `true` would introduce a second UID adaptation mechanism and make the image metadata and Compose XDG paths disagree.
 
 ## Adapt an existing generated image
 
-Rebuilding the original image is the cleanest way to change numeric identity. When that build is too expensive, the generated `Dockerfile.update-user` creates a derivative layer:
+Rebuilding the original image is the cleanest way to change numeric identity. When that build is too expensive, the generated `Dockerfile_update_user` creates a derivative layer:
 
 ```bash
-docker build --file Dockerfile.update-user \
+docker build --file Dockerfile_update_user \
     --build-arg BASE_IMAGE=local/robotics-jazzy:latest \
     --build-arg NEW_UID=2000 \
     --build-arg NEW_GID=2000 \
     --tag local/robotics-jazzy:uid-2000 .
 ```
 
-The adapter requires all new `ROBOTICS_DOCKERS_USER*` environment metadata and rejects older images. It is tied to the user name and home from the context that generated it, and refuses a base image whose metadata names another account. It changes only the numeric UID and primary GID; names and home remain unchanged. The derivative Dockerfile republishes the IDs and explicitly restores the validated textual `USER` and `WORKDIR`. The helper validates account collisions and refuses a UID change if the old UID owns a file outside the user's home or mailbox. When the GID changes, the old group remains at its numeric GID under `rd_old_<gid>` or a unique suffixed name. At most one `usermod` call traverses the home.
+The adapter requires all `ROBOTICS_DOCKERS_USER*` environment metadata and rejects older images. It obtains the user name, group name and home from the base image instead of embedding values from the machine that generated the Dockerfile. It changes only the numeric UID and primary GID; names and home remain unchanged. The derivative Dockerfile republishes the IDs and restores the inherited textual `USER` and `WORKDIR`. The helper validates account collisions and refuses a UID change if the old UID owns a file outside the user's home or mailbox. When the GID changes, the old group remains at its numeric GID under `rd_old_<gid>` or a unique suffixed name. At most one `usermod` call traverses the home.
 
 `shadow-utils` and filesystem ownership changes are not one transaction. The helper checks predictable failures before mutation and reports partial-state risks, but it does not attempt rollback. Changing ownership in a large home can add a layer roughly as large as that content.
 
-After using the adapter, update every consumer that contains the old numeric identity, especially:
+After using the adapter, refresh every local Compose environment that refers to the derived image:
 
-- the image name in Compose;
-- the UID/GID in its XDG `tmpfs` declaration;
-- `/run/user/<uid>` paths and Xauthority targets;
-- external scripts or CI configuration that assume the old IDs.
+- select the derived image in Compose if its tag changed;
+- run `robotics_dockers_user_env.py DERIVED_IMAGE --output env_files/SELECTED_FILE.env`;
+- update external scripts or CI configuration that separately assumes the old IDs.
 
-The account name does not change, so VS Code `remoteUser` normally remains the same.
+The generic Compose file itself contains no numeric identity to edit.
 
 ## Rootless Docker and user namespaces
 
@@ -363,16 +441,12 @@ result = generate_docker_context(
     DockerContextConfig(
         ros_distro='jazzy',
         img_id='local/robotics-jazzy:latest',
-        user='developer',
-        user_id=1000,
-        primary_group='robotics',
-        primary_group_id=1000,
         output_dir='./docker-jazzy',
     )
 )
 
 print(result.context_dir)
-print(result.resolved_config.user_id)
+print(result.resolved_config.img_id)
 ```
 
 See [docs/refactor-architecture.md](docs/refactor-architecture.md) for the internal generation and build contracts.

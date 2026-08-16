@@ -41,23 +41,13 @@ def _create_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
         formatter_class=lambda prog: argparse.RawTextHelpFormatter(prog, max_help_position=38),
     )
-    # Required values are positional and ordered from the concrete Linux
-    # identity to the higher-level image being generated. Optional choices use
-    # explicit long options below this block.
-    new_parser.add_argument(
-        'user_name', metavar='user-name', type=str, help='Development user name stored in the image'
-    )
-    new_parser.add_argument('user_id', metavar='user-id', type=str, help='Development user ID stored in the image')
-    new_parser.add_argument(
-        'group_id', metavar='group-id', type=str, help='Development user primary group ID stored in the image'
-    )
+    # Generation records only settings that may be shared in source control.
+    # The local development identity is supplied later to the generated
+    # build.py, immediately before Docker builds the image.
     new_parser.add_argument('ros_distro', metavar='ros-distro', type=str, help=f'ROS distro.\n{get_ros_distros_help()}')
     new_parser.add_argument('img_id', metavar='img-id', type=str, help='ID for the resulting Docker image')
     new_parser.add_argument(
         '--base-img', type=str, default=None, help='Base image. Default: ubuntu:X.Y, matched to the ROS distro.'
-    )
-    new_parser.add_argument(
-        '--group', metavar='GROUP_NAME', default=None, help='Primary group name. Default: user-name.'
     )
     new_parser.add_argument(
         '--nvidia', action='store_true', dest='use_host_nvidia_driver', help="Use host's NVIDIA driver"
@@ -85,10 +75,6 @@ def _run_create(args: argparse.Namespace) -> int:
     config = DockerContextConfig(
         ros_distro=args.ros_distro,
         img_id=args.img_id,
-        user=args.user_name,
-        user_id=args.user_id,
-        primary_group=args.group,
-        primary_group_id=args.group_id,
         output_dir=args.output,
         base_img=args.base_img,
         use_host_nvidia_driver=args.use_host_nvidia_driver,
@@ -117,21 +103,21 @@ def _print_create_summary(result: DockerContextResult) -> None:
     print(f'  Image name:        {config.img_id}')
     print(f'  ROS distro:        {config.ros_distro}')
     print(f'  Base image:        {config.base_img}')
-    print(f'  Development user:  {config.user} ({config.user_id})')
-    print(f'  Primary group:     {config.primary_group} ({config.primary_group_id})')
     print(f'  Host NVIDIA:       {"enabled" if config.use_host_nvidia_driver else "disabled"}')
     print()
     print('Generated:')
     print('  - Dockerfile')
     print('  - build.py')
-    print('  - docker-compose-dev.yaml')
+    print('  - compose_files/docker-compose.yaml')
+    print('  - robotics_dockers_user_env.py')
+    print('  - env_files/')
     print(f'  - .resources/ ({len(resource_files)} support files)')
     print()
     print('Next steps:')
     print('  1. Review optional customizations in .resources/extra.d/')
     print('  2. Build the image:')
     print(f'     cd {result.context_dir}')
-    print('     python3 build.py')
+    print('     python3 build.py USER_NAME USER_ID GROUP_ID [--group GROUP_NAME]')
 
 
 if __name__ == '__main__':
