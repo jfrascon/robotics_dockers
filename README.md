@@ -4,749 +4,402 @@
   <img src="docs/assets/logo.png" alt="robotics-dockers logo" width="300">
 </p>
 
-Generate ready-to-use Docker build contexts for ROS 2 development images.
+`robotics-dockers` generates Docker build contexts for ROS 2 development. Each generated image contains one development account whose user ID and primary group ID are chosen at build time.
 
-`robotics-dockers` creates a Dockerfile, a build script, a development `docker-compose-dev.yaml` file, and the support scripts needed to run a ROS 2 container with a development user that matches the host filesystem owner.
+This design is deliberately simple at runtime: the container starts directly as the configured development user. It does not start as root, rewrite account files, traverse the home directory or change file ownership when the container starts.
 
----
+## Why the numeric identity is fixed during the build
 
-## Table of contents
+Linux stores file owners as numeric UIDs and GIDs. User and group names are only labels. A process running as UID 1001 inside a container creates UID-1001 files on a bind mount, even if the host calls its own UID-1001 account by another name.
 
-1. [Installing Docker](#installing-docker)
-2. [Docker and the host filesystem owner matching problem](#docker-and-the-host-filesystem-owner-matching-problem)
-3. [Generating ROS 2 Docker images](#generating-ros-2-docker-images)
-    - [Prerequisites](#prerequisites)
-    - [Installation](#installation)
-    - [Quick start](#quick-start)
-    - [CLI reference](#cli-reference)
-    - [Python API](#python-api)
-    - [build.py reference](#buildpy-reference)
-    - [Customizing the output](#customizing-the-output)
-    - [Startup scripts (entrypoint_root.d)](#startup-scripts-entrypoint_rootd)
-    - [NVIDIA GPU support](#nvidia-gpu-support)
-    - [rosbuild: colcon build wrapper](#rosbuild-colcon-build-wrapper)
-    - [Running the container](#running-the-container)
-    - [CycloneDDS host tuning](#cyclonedds-host-tuning)
-4. [Launching graphical user interfaces (GUIs) in Docker containers](#launching-graphical-user-interfaces-guis-in-docker-containers)
-
----
-
-## Installing Docker
-
-It is recommended to install Docker using the official Docker repository maintained by Docker, Inc., rather than using the default Ubuntu packages or Snap. This ensures you get the latest version of Docker with all features and security updates. If you already have Docker packages installed from the default Ubuntu repositories or via Snap, remove them and next install Docker from the official repository with the provided script [`install_docker.sh`](scripts/install_docker.sh).
+Choose the same UID and primary GID that own the host workspace:
 
 ```bash
-# Remove Docker packages installed via apt
-dpkg -l | grep docker- | awk '{print $2}' | xargs -I% --no-run-if-empty sudo apt-get purge --auto-remove -y %
-
-# Remove Docker packages installed via snap
-snap list | grep docker | awk '{print $1}' | xargs -I% --no-run-if-empty sudo snap remove %
+id --user
+id --group
 ```
 
-Then use the `scripts/install_docker.sh` script provided in this repository. It configures your package manager to use the official Docker repository maintained by Docker, Inc., installs the latest Docker tools, and adds your user to the `docker` group:
+The generated image then creates files on `/workspace` with the correct host ownership without runtime account adaptation.
+
+This release intentionally breaks the former runtime-remapping contract. Old generated contexts must be regenerated. Unknown accounts inherited from a base image are never renamed or deleted automatically; resolve a known collision with an explicit preparation hook or edit the generated Dockerfile.
+
+## Install
+
+Requirements:
+
+- Python 3.10 or newer;
+- Docker Engine with BuildKit;
+- Docker Compose v2 for the generated Compose file.
+
+Install the project in a virtual environment:
 
 ```bash
-bash scripts/install_docker.sh
-```
-
-After the script completes, log out and log back in (or restart) for the group membership to take effect.
-
-### Troubleshooting: permission denied on Docker socket
-
-If you see an error like:
-
-```bash
-permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
-```
-
-your user is not yet in the `docker` group. Fix it with:
-
-```bash
-sudo usermod -aG docker $USER
-```
-
-Then log out and back in, or run `newgrp docker` to apply the change to the current session.
-
----
-
-## Docker and the host filesystem owner matching problem
-
-### What is a UID in Linux?
-
-UID stands for *user identifier*, a number assigned by the Linux kernel to each user. It is the actual identity used for access control: file ownership, process permissions, and resource access are all based on UIDs, not on usernames. Usernames are just human-readable labels that tools like `ls` translate from the underlying UID.
-
-```bash
-id
-uid=1000(myuser) gid=1000(myuser) groups=1000(myuser),27(sudo),998(docker)
-```
-
-UIDs 1–999 are typically reserved for system accounts. On Ubuntu, the first interactive user created during installation gets UID 1000.
-
-### The problem
-
-Most Docker images only provide the `root` user (UID 0). Running as root inside a container is a security risk. A mistake as root has no safety net. Beyond security, there is a practical issue with bind mounts.
-
-When you mount a directory from your host into a container (`-v /host/path:/container/path`), files created inside the container are owned by whatever UID is active in the container. If that UID does not match your UID on the host, you will not be able to edit or delete those files from your host OS without using `sudo`.
-
-This is a well-known problem:
-
-- [Docker and the host filesystem owner matching problem](https://www.fullstaq.com/knowledge-hub/blogs/docker-and-the-host-filesystem-owner-matching-problem)
-- [Different file owner inside Docker container and in host machine](https://stackoverflow.com/questions/42624758/different-file-owner-inside-docker-container-and-in-host-machine)
-
-### The solution used here
-
-The images generated by this project do not hardcode a UID. Both the generated image and its Compose service start the container as `root`, read `HOST_UID` and `HOST_UPGID` from the environment, remap the internal development user to those values at runtime, and then drop to that user. Files created by the final development process therefore use your host UID.
-
-See [Running the container](#running-the-container) for how to pass `HOST_UID` and `HOST_UPGID`.
-
----
-
-## Generating ROS 2 Docker images
-
-The `robotics-dockers new` command generates a complete Docker build context
-for a ROS 2 development image: a `Dockerfile`, a `build.py` script, a
-`docker-compose-dev.yaml`, and all supporting resources.
-
----
-
-### Prerequisites
-
-- Docker Engine
-- Python 3.10+
-
-If you intend to use an NVIDIA GPU:
-
-- NVIDIA driver installed on the host (`nvidia-smi` works)
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-
----
-
-### Installation
-
-Clone the repository and install the package in a virtual environment:
-
-```bash
-cd ~/Downloads
 git clone https://github.com/jfrascon/robotics_dockers.git
 cd robotics_dockers
-
-python3 -m venv ~/venvs/robotics-dockers
-source ~/venvs/robotics-dockers/bin/activate
-
-python -m pip install --upgrade pip
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install .
 ```
 
-The install creates the `robotics-dockers` command:
-
-```bash
-robotics-dockers new -h
-```
-
-For development, install the local checkout in editable mode with the test dependencies:
+For repository development:
 
 ```bash
 python -m pip install -e '.[dev]'
 ```
 
----
+[`scripts/install_docker.sh`](scripts/install_docker.sh) can install Docker from Docker's official Ubuntu repository. Docker group membership grants root-equivalent control over the host Docker daemon; use it only on a trusted development machine.
 
-### Quick start
+## Generate an image project
 
-```bash
-# See help:
-robotics-dockers new -h
-
-# Generate the build context:
-robotics-dockers new jazzy myorg/ros2-jazzy:latest --output ~/my_docker
-
-# Optionally edit extra packages before building:
-echo 'apt-get install -y --no-install-recommends ffmpeg' >> ~/my_docker/.resources/extra.d/apt_packages.sh
-echo 'ruff==0.15.14' >> ~/my_docker/.resources/extra.d/requirements.txt
-echo 'fd-find' >> ~/my_docker/.resources/extra.d/rust_packages.txt
-
-# Build the image:
-cd ~/my_docker
-python3 build.py --pull
-
-# Build with ROS package dependencies resolved via rosdep:
-python3 build.py --pkgs-dir /path/to/your/workspace/src
-
-# Save the build log:
-python3 build.py 2>&1 | tee /tmp/my_build.log
-```
-
----
-
-### CLI reference
+Required fields are positional, ordered from the local development identity to the generated image target:
 
 ```bash
-usage: robotics-dockers new [-h] [-b BASE_IMG]
-                                 [-u USER]
-                                 [--nvidia]
-                                 [-o OUTPUT]
-                                 [--meta-title META_TITLE]
-                                 [--meta-desc META_DESC]
-                                 [--meta-authors META_AUTHORS]
-                                 ros_distro img_id
+robotics-dockers new developer 1000 1000 jazzy local/robotics-jazzy:latest \
+    --group robotics \
+    --output ./docker-jazzy
 ```
 
-| Argument | Description |
+The positional order is `user-name user-id group-id ros-distro img-id`. If `--group` is omitted, it defaults to `user-name`:
+
+```bash
+robotics-dockers new developer "$(id --user)" "$(id --group)" jazzy local/robotics-jazzy:latest \
+    --output ./docker-jazzy
+```
+
+UID and GID must contain decimal digits and resolve to a value from 1000 through 4294967294. Leading zeroes are accepted by the generator and stored in canonical decimal form. User and group names use a deliberately narrow local-account format: lowercase letters, digits, `_` and `-`, with a lowercase letter or `_` first and at most 32 characters.
+
+The selected output directory must be absent or empty. Generation refuses existing content before writing anything so rerunning the command cannot silently destroy edited resources.
+
+Useful generation options:
+
+| Option | Meaning |
 | --- | --- |
-| `ros_distro` | ROS distro: `humble`, `jazzy` |
-| `img_id` | Docker image name and tag, e.g. `myorg/ros2-jazzy:latest` |
-| `-b BASE_IMG` | Base Docker image. Default: `ubuntu:X.Y` matched to the ROS distro |
-| `-u, --image-main-user USER` | Username for the development user inside the container. Default: `dev` |
-| `--nvidia` | Use host's NVIDIA driver |
-| `-o, --output DIR` | Directory where the output is written. Default: a temporary directory under `/tmp` |
-| `--meta-title TEXT` | Title written to the generated image metadata |
-| `--meta-desc TEXT` | Description written to the generated image metadata |
-| `--meta-authors TEXT` | Authors written to the generated image metadata |
+| `--base-img IMAGE` | Select another base image instead of the Ubuntu version associated with the ROS distro. |
+| `--nvidia` | Use the host NVIDIA driver instead of installing Mesa in the image. |
+| `--meta-title TEXT` | Set the OCI image title in the generated Dockerfile. |
+| `--meta-desc TEXT` | Set the OCI image description. |
+| `--meta-authors TEXT` | Set the OCI image authors. |
+| `--output PATH` | Select the generated directory. A temporary directory is used when omitted. |
 
-**Available ROS distros:**
+The output contains:
 
-- `humble` - ROS 2, Ubuntu 22.04
-- `jazzy` - ROS 2, Ubuntu 24.04
-
-**Custom base image:**
-
-You can pass any Docker image as the base, for example a CUDA image:
-
-```bash
-robotics-dockers new jazzy myorg/ros2-jazzy:latest \
-    -b nvidia/cuda:12.5.0-devel-ubuntu24.04 \
-    -u myuser \
-    --nvidia \
-    --output ~/my_docker
+```text
+docker-jazzy/
+├── Dockerfile
+├── Dockerfile.update-user
+├── build.py
+├── docker-compose-dev.yaml
+└── .resources/
+    ├── user_preparation.d/
+    ├── extra.d/
+    ├── configure_image_user.sh
+    ├── entrypoint_user.sh
+    └── ...
 ```
 
----
+## Build
 
-### Python API
+Review `.resources/` and then run:
 
-Other Python projects can call the generator without shelling out:
+```bash
+cd docker-jazzy
+python3 build.py
+```
+
+`build.py` reuses Docker's BuildKit cache by default. Its options are:
+
+- `--pull`: ask Docker to check for a newer base image;
+- `--no-cache`: rebuild every Dockerfile step;
+- `--pkgs-dir PATH`: when the generator did not fix a ROS package path, mount this source directory for `rosdep` dependency discovery.
+
+The generated Dockerfile keeps stable system and ROS installation phases before editable project phases. Each phase receives only the resources it consumes through `RUN --mount=type=bind`. BuildKit includes mounted file metadata in the cache decision but does not copy those resources into the layer. No project-specific checksum is needed. See [Docker build cache invalidation](https://docs.docker.com/build/cache/invalidation/).
+
+The base-system phase intentionally runs `apt-get dist-upgrade`. Each requested package set is passed to one real apt invocation. A separate simulation would repeat apt's dependency resolution without making the real installation transactional. If apt fails, Docker rejects the incomplete build layer.
+
+The generated Dockerfile owns the static OCI title, description and authors. `build.py` adds only `org.opencontainers.image.created`, because that timestamp belongs to the actual build.
+
+## Development identity
+
+The image exposes the identity through these environment variables:
+
+```text
+ROBOTICS_DOCKERS_USER
+ROBOTICS_DOCKERS_USER_ID
+ROBOTICS_DOCKERS_USER_HOME
+ROBOTICS_DOCKERS_USER_PRIMARY_GROUP
+ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID
+```
+
+Equivalent `io.github.jfrascon.robotics-dockers.user.*` labels make the numeric and textual identity inspectable without starting a container.
+
+During the build, `configure_image_user.sh` accepts these states:
+
+- neither requested name exists, so the exact group and user can be created;
+- the exact primary group exists but the user does not, so the group can be reused and the user created;
+- the exact group and user already exist with the requested names, UID, GID, real `/home/<user>` directory and `/bin/bash` shell, so both can be reused.
+
+An existing user without its exact primary group is an incomplete identity and is rejected rather than repaired implicitly.
+
+Every relevant name, ID and home collision in `/etc/passwd` and `/etc/group` is checked before the first account change. A conflicting base-image account causes the build to fail with no automatic repair. `shadow-utils` remains responsible for validating and updating the protected account records.
+
+The password is locked. When a local `dialout` or `video` group exists, the development user is added to that supplementary group. Known XDG, local-tool and ROS directories are created with mode `0755`; existing real directories keep their mode and only the directory itself receives the configured owner. Files and symbolic links at those paths, including paths copied from `/etc/skel`, are rejected before account creation. The account is not added to the `sudo` group. At the end of the build, a named `/etc/sudoers.d/robotics-dockers-<user>` rule grants `NOPASSWD` access and is validated with `visudo`. This keeps the project policy separate from Ubuntu's password-based `sudo` group policy.
+
+### Base images containing `ubuntu:1000:1000`
+
+Ubuntu 24.04 contains a pre-created `ubuntu` account in some image variants. Generated contexts include two disabled examples:
+
+```text
+.resources/user_preparation.d/
+├── 01-delete-ubuntu-user.sh.example
+└── 02-reuse-ubuntu-user.sh.example
+```
+
+- `01-delete-ubuntu-user.sh.example` requires unique local passwd/group records, the expected home, the exact blocking UID/GID, no other primary users of the group and no owned files outside the home or mailbox before deleting the account, group and home.
+- `02-reuse-ubuntu-user.sh.example` requires the expected public `ubuntu:1000:1000` identity, home and shell, then renames the account and group and moves the home while preserving its content. The following identity configuration step verifies the result.
+
+Read the chosen example, then remove only its `.example` suffix to activate it:
+
+```bash
+mv .resources/user_preparation.d/02-reuse-ubuntu-user.sh.example \
+   .resources/user_preparation.d/02-reuse-ubuntu-user.sh
+```
+
+Only regular `*.sh` files run. Symbolic links are rejected. Hooks run through Bash in bytewise `LC_ALL=C` filename order. Prefix custom hooks with `01-`, `10-`, `20-` and so on when order matters. Files ending in `.example` never execute.
+
+Preparation hooks run as root and may change the image. They are an explicit mechanism for base-image state understood by the image author, not a general collision-repair framework.
+
+## Editable extras
+
+### Apt
+
+```text
+.resources/extra.d/apt/
+├── keyrings.d/*.asc|*.gpg
+├── sources.d/*.sources
+└── packages.txt
+```
+
+Use standard apt formats:
+
+- store armored or binary repository keys in `keyrings.d`;
+- store deb822 repository definitions in `sources.d`;
+- put one apt package specification per active line in `packages.txt`; blank lines and `#` comments are allowed.
+
+Only regular files immediately inside `keyrings.d` and `sources.d` are accepted; nested directories, symbolic links and unsupported extensions are rejected. Apt options disguised as package lines and attempts to overwrite inherited files under `/etc/apt/keyrings` or `/etc/apt/sources.list.d` are also rejected. Each destination is checked immediately before its copy. If a later collision is found, Docker discards the entire failed build layer. `apt-get update` validates deb822 syntax and repository signatures, and the complete package list is passed to one installation request.
+
+### Python
+
+```text
+.resources/extra.d/python/
+├── requirements.txt
+└── install.d/*.sh
+```
+
+The editable requirements file initially contains:
+
+```text
+argcomplete
+ruff
+cmake-format
+pre-commit
+jinja2
+python-rapidjson
+uv
+```
+
+These packages are installed with the image's `/usr/bin/python3`, `pip --user` and `PYTHONUSERBASE=$HOME/.local`. Console commands therefore go to `$HOME/.local/bin`. `requirements.txt` follows pip's standard requirements-file syntax and normally resolves packages from the indexes configured for pip, PyPI by default.
+
+Regular `install.d/*.sh` hooks run afterwards as the real development user in `LC_ALL=C` filename order. They can install a user-local Python version, create a virtual environment or perform another Python-specific setup. Put that setup and its dependencies in the same hook rather than inventing additional project file formats.
+
+The project's `NOPASSWD` sudo rule is installed only after Python and Rust hooks finish. A base image may already provide other privilege policies, so this ordering is a maintainability guard, not a security boundary against a hostile Dockerfile author.
+
+### Rust
+
+```text
+.resources/extra.d/rust/install.sh.example
+```
+
+The project does not choose whether to install Rust, which toolchain becomes the default, which applications are installed or whether moving channels such as `stable` are acceptable. Only a file named exactly `install.sh` is active.
+
+The example explains an important base-image conflict: `/usr/bin/rustc` and `/usr/bin/cargo` may exist without rustup. Installing rustup would add another pair under `$HOME/.cargo/bin`, and the user environment would give that pair priority. The example stops and asks the image author to make that choice explicitly. Read and edit it before renaming it to `install.sh`.
+
+### Environment hooks
+
+```text
+.resources/extra.d/env.d/*.rc
+```
+
+The build installs regular `*.rc` files into `$HOME/.env.d`. At runtime, `$HOME/.env.rc`:
+
+1. creates the user XDG directories under the home;
+2. adds `$HOME/.local/bin` to `PATH` without duplication;
+3. adds `$HOME/.cargo/bin` when it exists;
+4. loads `$HOME/.ros.rc`;
+5. sources regular `$HOME/.env.d/*.rc` files in `LC_ALL=C` filename order.
+
+The user controls these hooks. Activating a Python virtual environment there is allowed, but can change which Python ROS tools use; the project does not activate a virtual environment by default. The environment-loaded marker is set only after every hook succeeds, so a failed hook can be fixed and retried with `reload_envrc`.
+
+## Runtime contract
+
+The generated image ends with:
+
+```dockerfile
+USER "${ROBOTICS_DOCKERS_USER}"
+WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["bash"]
+```
+
+The root-owned entrypoint does not require root privileges. It reads the executing UID and primary GID:
+
+- when both equal the identity stored in the image, it exports `HOME`, `USER`, `LOGNAME` and `SHELL` from the build metadata, validates optional XDG and NVIDIA state, loads `.env.rc`, and executes the requested command;
+- when either differs, it executes the requested command directly without loading the development environment.
+
+Supplementary groups do not change this decision. Compose `group_add` can therefore grant access to `renderD*` while the normal environment still loads.
+
+For the development identity, startup messages go to stdout/stderr and to:
+
+```text
+$HOME/.local/state/robotics-dockers/entrypoint.log
+```
+
+### Docker overrides
+
+Docker settings are independent, and the following behavior is intentional:
+
+- `docker run --user root IMAGE COMMAND` keeps the project entrypoint, but root's UID/GID do not match and the command runs directly without the development environment.
+- `docker run --user USER:GROUP ...` may replace the primary GID. If either numeric value differs from the built identity, the environment is not loaded.
+- `docker run --group-add GID ...` adds a supplementary group only and does not disable the environment.
+- `docker run --workdir PATH ...` changes only the initial working directory. It does not change `HOME` or the identity decision.
+- `docker run --entrypoint ...` bypasses the project entrypoint completely. The replacement is responsible for any environment loading it needs.
+- `docker exec` starts an additional process in an existing container and does not run the image entrypoint again. An interactive Bash shell still reads its normal Bash startup files.
+
+A derived Dockerfile that replaces the entrypoint must decide explicitly whether its final `USER` and `WORKDIR` still match the development account.
+
+### Mounts and ownership
+
+Generated project mounts use `/workspace` and the suggested dataset target is `/datasets`, both outside the development home. The container never repairs owners at startup. If the IDs already match, no repair is necessary; if they do not match, host bind-mount permissions will expose that mismatch directly.
+
+A custom mount below the home is allowed, but it can hide `.env.rc`, `.ros.rc`, `.env.d`, the startup log or other installed files. Mounting the complete home usually hides the runtime contract and is not supported. Hooks and root processes must assign correct owners to every file they create because no later recursive `chown` is performed.
+
+## Compose, graphics and devices
+
+The generated Compose service omits `user:` and inherits the image's development user. It uses concrete build-time UID/GID values for `/run/user/<uid>` and the Xauthority target; no host identity variables are required.
+
+Compose creates `/run/user/<uid>` as a `tmpfs` owned by the development UID/GID with mode `0700` and sets `XDG_RUNTIME_DIR`. The entrypoint validates the exact path, directory type, owner and mode. A direct `docker run` may omit `XDG_RUNTIME_DIR` when the command does not need it.
+
+The template retains:
+
+- `/workspace` and optional `/datasets` mounts;
+- `/dev/dri`, USB and input device mappings;
+- `group_add` using `RENDER_GID` for `/dev/dri/renderD*`;
+- NVIDIA Compose device reservations when generation used `--nvidia`;
+- host networking for ROS 2 discovery;
+- a commented `NET_ADMIN` capability for projects that truly modify network devices.
+
+Find the render-device GID with:
+
+```bash
+stat -c %g /dev/dri/renderD128
+```
+
+Put `RENDER_GID`, `HOST_ROS_WORKSPACE`, `DISPLAY` and `HOST_XAUTHORITY_FILE` in a Compose `.env` file or export them before `docker compose up`.
+
+When `--nvidia` is selected, the runtime entrypoint verifies both a usable `libcuda.so.1` and an NVIDIA device. The host needs the NVIDIA driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). `group_add` for a render node and NVIDIA device reservations solve different access paths and can coexist.
+
+[`scripts/install-docker-gui-support.sh`](scripts/install-docker-gui-support.sh) configures an XWayland Xauthority file on a Wayland host. The generated Compose file mounts that single file read-only instead of exposing the host `.ssh` or complete home.
+
+## VS Code Dev Containers
+
+VS Code can use the image without changing its UID because the identity was already selected during the build:
+
+```json
+{
+  "remoteUser": "developer",
+  "updateRemoteUserUID": false,
+  "workspaceFolder": "/workspace"
+}
+```
+
+Keep `remoteUser` equal to the generated account name. Setting `updateRemoteUserUID` to `true` would reintroduce a second UID adaptation mechanism and make the image metadata and hard-coded Compose paths incorrect.
+
+## Adapt an existing generated image
+
+Rebuilding the original image is the cleanest way to change numeric identity. When that build is too expensive, the generated `Dockerfile.update-user` creates a derivative layer:
+
+```bash
+docker build --file Dockerfile.update-user \
+    --build-arg BASE_IMAGE=local/robotics-jazzy:latest \
+    --build-arg NEW_UID=2000 \
+    --build-arg NEW_GID=2000 \
+    --tag local/robotics-jazzy:uid-2000 .
+```
+
+The adapter requires all new `ROBOTICS_DOCKERS_USER*` environment metadata and rejects older images. It is tied to the user name and home from the context that generated it, and refuses a base image whose metadata names another account. It changes only the numeric UID and primary GID; names and home remain unchanged. The derivative Dockerfile republishes the IDs and explicitly restores the validated textual `USER` and `WORKDIR`. The helper validates account collisions and refuses a UID change if the old UID owns a file outside the user's home or mailbox. When the GID changes, the old group remains at its numeric GID under `rd_old_<gid>` or a unique suffixed name. At most one `usermod` call traverses the home.
+
+`shadow-utils` and filesystem ownership changes are not one transaction. The helper checks predictable failures before mutation and reports partial-state risks, but it does not attempt rollback. Changing ownership in a large home can add a layer roughly as large as that content.
+
+After using the adapter, update every consumer that contains the old numeric identity, especially:
+
+- the image name in Compose;
+- the UID/GID in its XDG `tmpfs` declaration;
+- `/run/user/<uid>` paths and Xauthority targets;
+- external scripts or CI configuration that assume the old IDs.
+
+The account name does not change, so VS Code `remoteUser` normally remains the same.
+
+## Rootless Docker and user namespaces
+
+Rootless Docker and daemon `userns-remap` translate container IDs through a subordinate-ID mapping. That is a different model from matching the container's numeric UID/GID directly to a normal host account. This project does not detect or configure those mappings and does not claim filesystem-owner compatibility under them. Use the Docker documentation and validate bind-mount ownership for that daemon configuration before adopting it.
+
+## Python API
+
+The same generator is available without the CLI:
 
 ```python
 from robotics_dockers import DockerContextConfig, generate_docker_context
 
 result = generate_docker_context(
     DockerContextConfig(
-        image_main_user='myuser',
         ros_distro='jazzy',
-        img_id='myorg/ros2-jazzy:latest',
-        output_dir='~/my_docker',
+        img_id='local/robotics-jazzy:latest',
+        user='developer',
+        user_id=1000,
+        primary_group='robotics',
+        primary_group_id=1000,
+        output_dir='./docker-jazzy',
     )
 )
 
 print(result.context_dir)
+print(result.resolved_config.user_id)
 ```
 
-The Python API is the preferred integration point for tools that create larger
-ROS project layouts around the generated Docker context.
+See [docs/refactor-architecture.md](docs/refactor-architecture.md) for the internal generation and build contracts.
 
----
+## Verification
 
-### build.py reference
+Repository checks are:
 
 ```bash
-usage: build.py [-h] [-c] [-p] [--pkgs-dir DIR] ...
+ruff format --check src tests
+ruff check src tests
+pre-commit run --all-files
+PYTHONPATH=src pytest -m 'not docker'
+PYTHONPATH=src pytest -m 'docker and not ros_image and not full_build'
+PYTHONPATH=src pytest -m ros_image
 ```
 
-| Argument | Description |
-| --- | --- |
-| `-c`, `--cache` | Reuse cached Docker layers |
-| `-p`, `--pull` | Pull the latest base image before building |
-| `--pkgs-dir DIR` | Path to the ROS packages directory on the host (e.g. `~/workspace/src`). If provided, rosdep installs the dependencies of those packages into the image |
+`tests/test_resources.py` runs `bash -n` over every packaged Bash resource, including extensionless commands and `.rc` files that a `*.sh` filesystem search would miss.
 
-`build.py` writes directly to your terminal. Pipe through `tee` to keep a log file:
+Docker functional tests derive their image matrix directly from `ROS_DISTROS`. The current matrix runs the general script and entrypoint scenarios on `ubuntu:22.04` and `ubuntu:24.04`, then checks the real ROS environments with `ros:humble-ros-core` and `ros:jazzy-ros-core`. Adding a supported distribution extends these matrices automatically.
+
+Every public image is inspected first and pulled only when its exact tag is absent. A pull failure fails the functional suite with the registry error instead of hiding the tests. A private project image must never become a test prerequisite. Ubuntu preparation examples create their known `ubuntu:1000:1000` source identity when a base does not provide it, so the same example is tested deterministically on every supported Ubuntu.
+
+Complete generated-image builds are available as an explicit, expensive release check:
 
 ```bash
-python3 build.py 2>&1 | tee /tmp/my_build.log
+PYTHONPATH=src pytest -m full_build --full-build-distro humble
 ```
 
----
-
-### Customizing the output
-
-After running `robotics-dockers new`, the output directory contains files under
-`.resources/` that you can edit before building.
-
-#### `rosdep_skip_keys.txt`
-
-Text file with rosdep keys that should be ignored by rosdep inside the image.
-Add one key per line. Empty lines and lines that start with `#` are ignored.
-The generated file already contains ROS 2 middleware packages that are not
-available in the standard Ubuntu/ROS 2 apt repositories.
-
-The helper `skip_rosdep_keys` is available at `/usr/local/bin/skip_rosdep_keys`
-inside the image. It receives a text file with one rosdep key per line and
-registers those keys in:
-
-```text
-/etc/ros/rosdep/rosdep_ignored_keys.yaml
-```
-
-For one-off manual use inside a running container, create a temporary file and
-pass it to the helper:
-
-```bash
-printf '%s\n' my_private_package another_unavailable_key > /tmp/rosdep_skip_keys.txt
-sudo skip_rosdep_keys /tmp/rosdep_skip_keys.txt
-```
-
-The same keys can also be skipped for a single rosdep command with rosdep's own
-`--skip-keys` option.
-
-The `.resources/extra.d/` folder contains three files you can edit before building:
-
-#### `extra.d/apt_packages.sh`
-
-Shell script executed as root after ROS is installed. Add general apt packages, third-party repositories or any other system-level setup here:
-
-The helper `install_pkgs` is available in this script. It installs packages that are resolvable, skips packages that are already installed, warns about packages that are not installable, and fails only when none of the requested packages can be installed.
-
-```bash
-#!/usr/bin/env bash
-install_pkgs libopencv-dev ffmpeg
-
-# Adding a third-party repository:
-install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | \
-    gpg --dearmor -o /etc/apt/keyrings/llvm-snapshot.gpg
-echo "deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-18 main" \
-    > /etc/apt/sources.list.d/llvm-toolchain-noble-18.list
-apt-get update && apt-get install -y clang-18
-
-```
-
-Prefer rosdep for ROS packages that are actual dependencies of your project. For example, if one of your packages needs `twist_mux`, declare that dependency in the package `package.xml` and build the image with `python3 build.py --pkgs-dir /path/to/your/workspace/src`. That lets rosdep resolve and install the matching `ros-${ROS_DISTRO}-*` package from the project metadata. This requires the packages and their dependencies to exist before the image is built, so it is normal to regenerate the image as the project grows.
-
-> If you generated without `--nvidia`, the Dockerfile runs the generated
-> `.resources/install_mesa_packages.sh` script before ROS is installed.
-> This file remains available for your own project-specific apt packages.
-
-#### `extra.d/requirements.txt`
-
-Standard pip requirements file. Installed as `--user` for the container user.
-
-```text
-numpy
-torch==2.3.0
---index-url https://download.pytorch.org/whl/cu121
-torchvision
-git+https://github.com/user/repo.git@main
-```
-
-#### `extra.d/rust_packages.txt`
-
-One Rust crate per line. Two modes:
-
-```text
-# Binary mode (fast): downloads a pre-built binary
-ripgrep
-fd-find
-
-# Source mode (slow): compiles from source, use when features are needed
-source: broot --features clipboard
-```
-
-If the file contains only comments or blank lines, the Rust toolchain is
-**not** installed.
-
----
-
-### Startup scripts (entrypoint_root.d)
-
-When the container starts, `/usr/local/bin/entrypoint.sh` first validates the requested UID/GID, required user files, and `XDG_RUNTIME_DIR`. It checks NVIDIA driver access when `--nvidia` was used, adapts the internal user UID/GID to match `HOST_UID`/`HOST_UPGID`, runs optional project hooks, prepares `XDG_RUNTIME_DIR`, and finally uses `setpriv` to start the development user session through `${HOME}/.entrypoint.sh`. The user entrypoint prepares the persistent XDG directories and executes the requested command.
-
-The UID/GID adaptation is deliberately selective. If the UID changes, `usermod` changes the UID of home content owned by the old UID. If the primary GID changes, it changes the GID of home content owned by the old primary GID. Unrelated owners and groups are preserved. For example, a file owned by `root:<old-primary-gid>` keeps UID `root` and receives the new primary GID, while a file owned by `<old-uid>:docker` receives the new UID and keeps group `docker`. The entrypoint does not run a blanket recursive `chown`.
-
-When UID and primary GID both change, the entrypoint passes both values to one `usermod` command so `shadow-utils` traverses the home once. When both already match, `usermod` is not executed and the home is not scanned or repaired. A file with an incorrect owner therefore remains incorrect on later no-op starts; the process that creates a file is responsible for assigning its intended owner.
-
-Changing the primary GID does not change the numeric GID of the image user's old primary group. The entrypoint preserves that group under a name such as `rd_old_1000`, then creates or renames the group at `HOST_UPGID` so it has the expected original group name. This preserves other users and files that still refer to the old numeric GID.
-
-A hook is a script that a project places in a known directory so the entrypoint runs it at a defined point during startup. In the generated context, `.resources/entrypoint_root.d/` contains optional **root hooks**. During the image build, those hooks are installed into `/etc/entrypoint.d/` and executed as `root`, after UID/GID adaptation and before the final privilege drop.
-
-Root hooks run in alphabetical order. Files ending in `.sh` are executed with `bash`; they are not sourced. Files ending in `.txt` are printed to stdout. Because `.sh` hooks run as separate processes, variables exported by those scripts do not leak into the final user session. If a hook needs to pass information forward, write it to a file in a path that the later process can read.
-
-Root hooks run after UID/GID adaptation. Files created by root hooks under the image-owned home must set their own ownership if they need to be writable by the final user. They are not repaired later during the same startup, and a later startup performs no repair when the requested UID/GID already match.
-
-Do not bind mount `IMAGE_MAIN_USER`'s complete home directory. The entrypoint installs runtime files there, including `.entrypoint.sh`, `.env.rc`, `.ros.rc`, and `.bashrc_user`, and aborts if the home itself is a mount point because such a mount would hide those files.
-
-The generated workspace and dataset targets are `/workspace` and `/datasets`, outside the image user's home. Custom mounts below the home are allowed but receive no special protection: when UID or primary GID changes, `usermod` traverses those mounts and applies the same selective old-to-new UID/GID mapping used for all other home content.
-
-The entrypoint requires the following preconditions. If they are not met, the container aborts with a clear error message:
-
-| Precondition | Requirement |
-| ------------ | ----------- |
-| Active user at startup | Must be `root` (UID 0) |
-| `HOST_UID` | Must be between 1000 and 4294967294; leading zeroes are accepted and removed; if the value differs from the image UID, it must be free |
-| `HOST_UPGID` | Must be between 1000 and 4294967294; leading zeroes are accepted and removed; it may be used by at most one local group |
-| Image user | Must have exactly one valid local `/etc/passwd` entry and a UID not shared by another local user |
-| Image primary group | Must have exactly one local name and a GID not shared by another local group; `/etc/group` and `/etc/gshadow` must contain the same group names exactly once |
-| Home directory | Must be an absolute, non-symlink directory other than `/`; it must belong exactly to the image user's UID and primary GID and must not itself be a mount point |
-| Required user files | `.entrypoint.sh` must be executable and `.env.rc` must be readable by the image user, not merely by root |
-| `XDG_RUNTIME_DIR` | Must be `/run/user/<HOST_UID>` and must be absent or already be a real directory, never a symbolic link or regular file |
-
-When all preconditions are met, the entrypoint remaps the UID/GID of `IMAGE_MAIN_USER` inside the image to match `HOST_UID`/`HOST_UPGID`, then uses `setpriv` to start `${HOME}/.entrypoint.sh` with that UID and GID. The final supplementary group list is the union of the groups recorded for the image user and the numeric GIDs inherited from Docker `group_add`. The entrypoint removes root's primary GID from that list and removes duplicates.
-
-Before dropping root, the entrypoint prepares `XDG_RUNTIME_DIR`, which defaults to `/run/user/<HOST_UID>` and must be private to the final user. If `XDG_RUNTIME_DIR` is provided, it must match that default path. The shared user environment then resolves `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_STATE_HOME`. If one of those variables is not set, it defaults to the matching persistent directory under the user's home: `.cache`, `.config`, `.local/share`, or `.local/state`. If a resolved XDG directory points inside the user's home, the user environment creates it and sets mode `755`. If a resolved XDG directory points outside the user's home, the user environment leaves it unchanged and prints a warning.
-
-The root entrypoint writes `/run/robotics-dockers/entrypoint.log`. It is owned by UID:GID `0:0`, has mode `0644`, and contains account names and numeric IDs but never complete `/etc/passwd` or `/etc/group` records. This lets the development user inspect startup decisions without exposing account password fields.
-
-The typical setup is `user: root` in docker-compose with `HOST_UID=$(id -u)` and `HOST_UPGID=$(id -g)` provided via a `.env` file or environment variables.
-
-#### How the active user at container startup is determined
-
-With `docker run`:
-
-1. `--user <user>` passed in the CLI: the specified user is active, overriding any `USER` instruction in the Dockerfile.
-2. No `--user` in the CLI: the user specified by the `USER` instruction in the Dockerfile is active.
-
-The generated Dockerfile declares `USER root` because its entrypoint requires UID 0 for the UID/GID adaptation. It keeps `WORKDIR` set to `IMAGE_MAIN_USER`'s home, and the entrypoint drops privileges before starting the development command. A direct `docker run` that keeps this entrypoint therefore needs `HOST_UID` and `HOST_UPGID`, but does not need `--user root`.
-
-If `--entrypoint` is used to replace the generated entrypoint, the replacement process remains root by default. In that case, select `--user` and `--workdir` explicitly when different values are required.
-
-With `docker compose up`:
-
-1. `--user <user>` passed in the CLI: the specified user is active, overriding both any `user:` field in the compose file and any `USER` instruction in the Dockerfile.
-2. No `--user` in the CLI and `user:` present in the compose file: the value of `user:` is active, overriding the Dockerfile `USER`.
-3. No `--user` in the CLI and no `user:` in the compose file: the user specified by the `USER` instruction in the Dockerfile is active.
-
-With VS Code Dev Containers:
-
-- If you use VS Code Dev Containers with a `devcontainer.json` configuration file, the container starts according to the `docker-compose.yaml` referenced by `devcontainer.json` (or the Dockerfile `USER`), following the same rules as `docker compose up` above.
-- In the generated Docker Compose configuration, the service starts as `root`. This is intentional: the entrypoint needs root privileges so it can remap the image development user UID/GID to match `HOST_UID` and `HOST_UPGID`.
-- Starting the container as `root` is only the mechanism that makes the UID/GID adaptation possible. It is not the desired interactive user for VS Code.
-- **When VS Code Dev Containers is used, `remoteUser` should be set to `IMAGE_MAIN_USER`.** Without `remoteUser`, VS Code can attach using the `root` user from the Docker Compose `user:` setting. With `remoteUser` set, VS Code runs its remote server, terminals, and editor-side operations as the development user whose UID/GID was adapted by the entrypoint.
-
-When `--nvidia` is passed, the entrypoint checks whether the NVIDIA GPU driver is accessible from inside the container. This can fail for two independent reasons: (1) the container was started without passing GPU access to Docker, for example `--gpus all` was omitted from `docker run` or `deploy.resources` is missing from `docker-compose.yaml`; (2) the NVIDIA Container Toolkit is not installed on the host. In either case the entrypoint prints an error and aborts the container startup.
-
-#### Using a base image that has its own entrypoint
-
-This project always sets its own entrypoint (`/usr/local/bin/entrypoint.sh`), which overrides any entrypoint defined by the base image. If the base image you chose performs initialization logic that you want to preserve (common with NVIDIA images, for example), do not rely on the base entrypoint being called automatically.
-
-Instead:
-
-1. Find the relevant script(s) in the base image entrypoint.
-2. Copy or adapt that logic into a new `.sh` file and place it in `.resources/entrypoint_root.d/` **before running `build.py`**. Use the filename to control alphabetical order, for example `10-print-ros-env.sh`. `build.py` will copy it into `/etc/entrypoint.d/` in the image automatically.
-3. Run `build.py` as usual. The script will be picked up automatically.
-
-To inspect what entrypoint a base image defines:
-
-```bash
-# Show the entrypoint declared in the image metadata:
-docker inspect <base_img> --format '{{.Config.Entrypoint}}'
-
-# Read the contents of that script:
-docker run --rm --entrypoint cat <base_img> /path/to/entrypoint.sh
-```
-
----
-
-### NVIDIA GPU support
-
-Pass `--nvidia` when generating. This configures the docker-compose file to use `deploy.resources` with the NVIDIA driver.
-
-When `--nvidia` is enabled, the entrypoint checks at startup that the CUDA driver library and an NVIDIA device node are visible inside the container. If either check fails, startup aborts with an explicit error. Check the service logs with `docker compose logs <service>` if the container was started in detached mode.
-
-You also need to provide the GID of the render device so all processes (including those started by VS Code) can access `/dev/dri/renderD*`:
-
-```bash
-# Add the render device GID to a .env file next to docker-compose-dev.yaml:
-echo "RENDER_GID=$(stat -c %g /dev/dri/renderD128)" >> .env
-```
-
-**Warning at startup: `groups: cannot find name for group ID <N>`**
-
-When the container starts you may see a message like `groups: cannot find name for group ID 992`. This is expected and harmless. The GID comes from the host's render device group and does not have a corresponding name in the container's `/etc/group`. The process still belongs to that group and has full access to `/dev/dri/renderD*`. You can verify this inside the container:
-
-```bash
-# The GID appears in the output (as a number, without a name)
-id
-
-# The device is accessible
-ls -la /dev/dri/renderD128
-
-# Direct access test
-test -r /dev/dri/renderD128 && echo "access OK" || echo "no access"
-```
-
----
-
-### rosbuild: colcon build wrapper
-
-`rosbuild` is installed at `/usr/local/bin/rosbuild` and wraps `colcon build` with sensible defaults enabled out of the box:
-
-| Default behaviour | colcon equivalent |
-| --- | --- |
-| `--merge-install` | merges all install spaces into a single `install/` directory |
-| `--symlink-install` | symlinks Python files and other resources instead of copying |
-| `--mixin release` | enables release-mode compiler flags via colcon mixins |
-| `--mixin compile-commands` | generates `compile_commands.json` for IDEs/clangd |
-| `--parallel-workers N` | uses half the available CPU cores (rounded up) |
-| `-Wall -Wextra -Wpedantic ...` | injects common C++ warning flags via `CMAKE_CXX_FLAGS` |
-
-So instead of:
-
-```bash
-colcon build --merge-install --symlink-install --mixin release --mixin compile-commands
-```
-
-You just run:
-
-```bash
-rosbuild
-```
-
-Flags to opt out of the defaults:
-
-| Flag | Effect |
-| --- | --- |
-| `--no-merge-install` | disables `--merge-install` |
-| `--no-symlink-install` | disables `--symlink-install` |
-
-Any other `colcon build` argument is passed through unchanged:
-
-```bash
-# Build only specific packages in debug mode:
-rosbuild --packages-select my_pkg --no-symlink-install --mixin debug
-```
-
----
-
-### Running the container
-
-The output directory contains a `docker-compose-dev.yaml`. Copy it next to your workspace and create a `.env` file with the variables required by the default mounts and devices. `HOST_XAUTHORITY_FILE` is required by the default GUI/XAuthority configuration; remove the XAuth bind mount and `XAUTHORITY` environment variable if you intentionally use another GUI authorization method.
-
-```bash
-# .env
-HOST_UID=1000          # your UID: id -u
-HOST_UPGID=1000        # your primary GID: id -g
-HOST_ROS_WORKSPACE=/home/myuser/my_workspace   # host path mounted as the ROS workspace
-HOST_XAUTHORITY_FILE=/run/user/<your-uid>/docker-xwayland.xauth   # host-side XAuthority file
-RENDER_GID=992         # GID of the render device group: stat -c %g /dev/dri/renderD128
-```
-
-The generated Compose file maps `HOST_ROS_WORKSPACE` to `/workspace`, exposed inside the container as `CONTAINER_ROS_WORKSPACE`. The user shell setup uses `CONTAINER_ROS_WORKSPACE` to find the workspace overlay at `install/setup.bash`. The commented dataset example similarly targets `/datasets`; both paths stay outside the image user's home so normal host mounts are not included in `usermod`'s home traversal.
-
-If you use the GUI helper installed by `scripts/install-docker-gui-support.sh`, `HOST_XAUTHORITY_FILE` normally points to `${XDG_RUNTIME_DIR}/docker-xwayland.xauth` on the host.
-
-Then:
-
-```bash
-docker compose -f docker-compose-dev.yaml up
-```
-
-The container starts as root, remaps the internal user to your `HOST_UID`/`HOST_UPGID`, and then drops to the development user. Files created inside the container will be owned by you on the host.
-
----
-
-### CycloneDDS host tuning
-
-ROS 2 uses a DDS middleware for node communication. When large messages are exchanged (point clouds, images, sensor data) the default Linux kernel network buffers are too small and CycloneDDS will log errors or silently drop data.
-
-The official tuning guide covers this: [ROS 2 DDS tuning, CycloneDDS section](https://docs.ros.org/en/jazzy/How-To-Guides/DDS-tuning.html#cyclone-dds-tuning)
-
-#### Why these settings go on the host, not inside the container
-
-The parameters involved (`net.core.rmem_max`, `net.ipv4.ipfrag_*`) are Linux kernel parameters controlled via `sysctl`. A Docker container shares the host kernel. It cannot set `sysctl` values that affect the whole system from inside (and doing so would require `--privileged`, which is a security risk). The host is the right place for kernel-level tuning.
-
-#### Files provided
-
-The `dds/cyclonedds/` directory contains two `sysctl.d` drop-in files ready to install on the host:
-
-| File | What it sets |
-| --- | --- |
-| `10-cyclonedds.conf` | `net.core.rmem_max=2147483647` (2 GiB receive buffer) |
-| `10-ros2-cross-vendor-tuning.conf` | `net.ipv4.ipfrag_time=3`, `net.ipv4.ipfrag_high_thresh=134217728` (128 MiB) |
-
-#### Installing on the host
-
-```bash
-# Copy the files to sysctl.d
-sudo cp dds/cyclonedds/10-cyclonedds.conf /etc/sysctl.d/
-sudo cp dds/cyclonedds/10-ros2-cross-vendor-tuning.conf /etc/sysctl.d/
-
-# Apply immediately without rebooting
-sudo sysctl --system
-
-# Verify
-sysctl net.core.rmem_max
-sysctl net.ipv4.ipfrag_time
-sysctl net.ipv4.ipfrag_high_thresh
-```
-
-The settings persist across reboots because `sysctl.d` files are loaded at startup. Without them, CycloneDDS will work for small messages but will fail or lose data when messages exceed the default 208 KiB receive buffer.
-
-> **Note:** If you configure CycloneDDS to use a large receive buffer in its XML configuration (e.g. `<ReceiveBufferSize>` set to 10 MB or more) but have not applied these host settings, the middleware will log an error at startup and fall back to the system default, often causing silent data loss.
-
-## Launching graphical user interfaces (GUIs) in Docker containers
-
-The generated containers support graphical ROS 2 applications such as RViz and Gazebo on an Ubuntu host running a Wayland desktop session.
-
-The host is supposed to use Wayland as its desktop protocol. Applications inside the container use X11 through XWayland:
-
-```text
-RViz / Gazebo in Docker
-    -> Qt xcb
-    -> XWayland
-    -> Wayland desktop
-```
-
-This provides a stable and consistent graphical interface for ROS 2 containers while keeping the host desktop on Wayland.
-
-The generated `docker-compose-dev.yaml` uses the XAuth service configuration described in Option A by default.
-
-### Option A: XAuth service (recommended)
-
-The recommended configuration uses an Xauthority file generated by a systemd user service.
-
-Run the host installer once from a terminal opened inside the Wayland session:
-
-```bash
-scripts/install-docker-gui-support.sh
-```
-
-Run the installer as your normal desktop user, not with `sudo`. The script asks for administrative credentials only when it needs to install packages or write system files.
-
-The installer:
-
-1. Validates the current Wayland and XWayland session.
-2. Installs the `xauth` and `xwayland` packages when required.
-3. Installs `/usr/local/bin/set-xauth-cookies.sh`.
-4. Installs and enables the `set-xauth-cookies.service` systemd user service.
-5. Generates the per-session authentication file:
-
-   ```text
-   ${XDG_RUNTIME_DIR}/docker-xwayland.xauth
-   ```
-
-6. Validates the service and the generated Xauthority file.
-
-The service regenerates the authentication file automatically whenever a new graphical session starts. This option does not use `xhost`.
-
-The generated `docker-compose-dev.yaml` is already configured for this authentication method. It:
-
-- mounts `${HOST_XAUTHORITY_FILE}` read-only inside the container runtime directory;
-- mounts `/tmp/.X11-unix` read-only;
-- forwards `DISPLAY`;
-- sets `XDG_RUNTIME_DIR` to `/run/user/<HOST_UID>` inside the container;
-- mounts `/run/user/<HOST_UID>` as a `tmpfs` owned by `HOST_UID:HOST_UPGID` with mode `700`;
-- sets `XAUTHORITY` to the mounted file;
-- sets `QT_QPA_PLATFORM=xcb`;
-- sets `QT_X11_NO_MITSHM=1`.
-
-Do not remove or modify these graphical bind mounts or environment variables when using Option A.
-
-Start the generated container normally:
-
-```bash
-docker compose -f docker-compose-dev.yaml up -d
-```
-
-#### Troubleshooting Option A
-
-Check the systemd user service:
-
-```bash
-systemctl --user status set-xauth-cookies.service
-```
-
-Check that the Xauthority file exists and contains at least one authentication entry without printing the credential itself:
-
-```bash
-ls -l "${XDG_RUNTIME_DIR}/docker-xwayland.xauth"
-xauth -f "${XDG_RUNTIME_DIR}/docker-xwayland.xauth" info
-```
-
-Set `HOST_XAUTHORITY_FILE` to the host-side path of that file before starting the generated Compose service. With the default installer path, use `${XDG_RUNTIME_DIR}/docker-xwayland.xauth`.
-
-The expected service state is:
-
-```text
-Active: active (exited)
-```
-
-The `Number of entries` value reported by `xauth info` must be greater than zero.
-
-Inspect the service logs with:
-
-```bash
-journalctl --user -u set-xauth-cookies.service
-```
-
-If the graphical session has changed or the authentication file must be regenerated manually:
-
-```bash
-systemctl --user restart set-xauth-cookies.service
-```
-
-The authentication file grants access to the host XWayland display. Only mount it into trusted development containers.
-
-### Option B: xhost (manual, per session)
-
-Users who do not want to install the host helper and systemd user service can authorize the current desktop user manually with `xhost`.
-
-Run this command on the host before starting the container:
-
-```bash
-xhost +SI:localuser:"$(id -un)"
-```
-
-When using this option, remove the XAuth-specific configuration from the rendered `docker-compose-dev.yaml`. Do not modify `src/robotics_dockers/resources/docker-compose.yaml.j2`, because Option A remains the project default.
-
-Remove this bind mount from the rendered Compose file:
-
-```yaml
-- type: bind
-    source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"
-    target: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
-  read_only: true
-  bind:
-    create_host_path: false
-```
-
-Also remove this environment variable:
-
-```yaml
-XAUTHORITY: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
-```
-
-Keep the X11 socket bind mount:
-
-```yaml
-- type: bind
-  source: /tmp/.X11-unix
-  target: /tmp/.X11-unix
-  read_only: true
-```
-
-Keep these environment variables:
-
-```yaml
-DISPLAY: "${DISPLAY:?DISPLAY must be set}"
-QT_QPA_PLATFORM: "xcb"
-QT_X11_NO_MITSHM: "1"
-```
-
-Start the container normally:
-
-```bash
-docker compose -f docker-compose-dev.yaml up -d
-```
-
-Revoke the temporary authorization when the container is no longer needed:
-
-```bash
-xhost -SI:localuser:"$(id -un)"
-```
-
-Do not use unrestricted commands such as:
-
-```bash
-xhost +
-xhost +local:
-```
-
-These commands grant broader access to the XWayland display than is required.
+The command must name exactly one supported ROS distribution. Merely running the full pytest suite, the Docker suite or even `pytest -m full_build` does not start a complete build. These tests install the complete system, ROS and user tooling and can consume several gigabytes of downloads, image layers and build cache. Run one only after explicitly deciding that its cost is appropriate for a release check.

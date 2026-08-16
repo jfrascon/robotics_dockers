@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
-import getpass
-import hashlib
 import os
-import re
+import shlex
 {% if rosdep_packages_dir_mode == 'cli' %}
 import shutil
 {% endif %}
@@ -17,80 +15,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __name__ == '__main__':
-
-    def img_exists_locally(img: str) -> bool:
-        cmd = ['docker', 'image', 'inspect', img]
-        # capture=True -> stdout y stderr redireted to PIPE (they are not shown in the terminal)
-        # check=False  -> it does not throw exception if the image does not exist
-        result = run_command(cmd, capture=True, check=False)
-        return result.returncode == 0
-
-    def is_valid_docker_img_name(name: str) -> bool:
-        """
-        Validate a Docker image name according to Docker's official naming rules.
-
-        Format:
-            [HOST[:PORT_NUMBER]/]PATH[:TAG]
-
-        See: https://docs.docker.com/get-started/docker-concepts/building-images/build-tag-and-publish-an-image/#tagging-images
-        """
-
-        # Optional registry prefix: host (lower‑case letters, digits, dots, dashes)
-        # with optional :PORT, followed by a slash.
-        host_and_port_prefix = r'([a-z0-9.-]+(:[0-9]+)?/)?'
-
-        # A separator inside a path component can be:
-        #   • a single dot
-        #   • one or two underscores
-        #   • one or more dashes
-        path_separator = r'(?:\.|_{1,2}|-+)'
-
-        # A path component must start and end with an alphanumeric character,
-        # separators are allowed only between alphanumerics.
-        path_component = rf'[a-z0-9]+(?:{path_separator}[a-z0-9]+)*'
-
-        # PATH = one or more components separated by '/'
-        path_re = rf'{path_component}(/{path_component})*'
-
-        # Optional TAG: colon + allowed characters (letters, digits, '_', '.', '-')
-        tag_re = r'(:[a-zA-Z0-9_.-]+)?'
-
-        # Full regex combining all parts
-        full_re = re.compile(rf'^{host_and_port_prefix}{path_re}{tag_re}$')
-
-        return bool(full_re.match(name))
-
-    def run_command(
-        cmd: list[str], capture: bool = False, check: bool = True, cwd: Path | None = None
-    ) -> subprocess.CompletedProcess:
-        return subprocess.run(cmd, check=check, text=True, capture_output=capture, cwd=cwd)
-
-    def compute_directory_checksum(path: Path) -> str:
-        """
-        Return a deterministic checksum for all files under path.
-
-        The digest includes each file's relative path and contents, sorted by path.
-        It does not include metadata such as modification time, ownership, permissions, or empty
-        directories.
-        """
-        digest = hashlib.sha256()
-
-        for file_path in sorted(item for item in path.rglob('*') if item.is_file()):
-            relative_path = file_path.relative_to(path).as_posix()
-            digest.update(relative_path.encode())
-            digest.update(b'\0')
-            digest.update(file_path.read_bytes())
-            digest.update(b'\0')
-
-        return digest.hexdigest()
-
     # ----------------------------------------------------------------------------------------------
     # Main execution block
     # ----------------------------------------------------------------------------------------------
     parser = argparse.ArgumentParser(
         description=(
             'Builds the Docker image "{{ img_id }}" using the base image "{{ base_img }}", '
-            'with active user "{{ image_main_user }}" and "ROS 2 {{ ros_distro }}"'
+            'with development user "{{ user }}" and "ROS 2 {{ ros_distro }}"'
         ),
         allow_abbrev=False,  # Disable prefix matching
         add_help=False,  # Add custom help message
@@ -102,10 +33,9 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '-c',
-        '--cache',
+        '--no-cache',
         action='store_true',
-        help='Reuse cached layers to optimize the time and resources needed to build the image.',
+        help='Rebuild every Dockerfile step instead of reusing BuildKit cache entries.',
     )
 
     parser.add_argument(
@@ -121,22 +51,6 @@ if __name__ == '__main__':
         ),
     )
 
-    parser.add_argument(
-        '--meta-title',
-        type=str,
-        default='Docker image with "ROS 2 {{ ros_distro }}"',
-        help='Title to include in the image\'s metadata (e.g "App")',
-    )
-
-    parser.add_argument(
-        '--meta-desc',
-        type=str,
-        default='Docker image for development and testing',
-        help="Description to include in the image's metadata",
-    )
-
-    parser.add_argument('--meta-authors', type=str, default=getpass.getuser(), help='Authors of the image')
-
 {% if rosdep_packages_dir is none %}
     parser.add_argument(
         '--pkgs-dir',
@@ -150,31 +64,17 @@ if __name__ == '__main__':
 {% endif %}
 
     args = parser.parse_args()
-    args.meta_title = args.meta_title.strip()
-    args.meta_desc = args.meta_desc.strip()
-    args.meta_authors = args.meta_authors.strip()
-
     this_file = Path(__file__).resolve()
 
-    # To compute paths we use relative paths from the current file. This way multiple users with
-    # this file placed in different directories can use it without issues, having into account that
-    # this file is under source control.
+    # Resolve every generated resource relative to this file. The generated
+    # directory can therefore be moved or checked out at any host path.
 
-    base_img = '{{ base_img}}'
-    image_main_user = '{{ image_main_user}}'
-    img_id_to_build = '{{ img_id }}'
-
-    if not is_valid_docker_img_name(base_img):
-        print(f"Error: Invalid Docker base image name: '{base_img}'", file=sys.stderr)
-        sys.exit(1)
-
-    if ' ' in image_main_user:
-        print(f"Error: Invalid user argument '{image_main_user}'", file=sys.stderr)
-        sys.exit(1)
-
-    if not is_valid_docker_img_name(img_id_to_build):
-        print(f"Error: Invalid Docker image name: '{img_id_to_build}'", file=sys.stderr)
-        sys.exit(1)
+    # Jinja's tojson filter produces a quoted string literal with control
+    # characters escaped. It is valid Python syntax and prevents a configured
+    # path or label from breaking this generated script.
+    base_img = {{ base_img | tojson }}
+    user = {{ user | tojson }}
+    img_id_to_build = {{ img_id | tojson }}
 
     context_dir = this_file.parent
     dockerfile = context_dir.joinpath('Dockerfile')
@@ -188,25 +88,9 @@ if __name__ == '__main__':
         print(f"Error: Directory '{str(resources_dir)}' is required")
         sys.exit(1)
 
-    # Docker does not automatically notice changes in files that are only bind-mounted during a RUN step.
-    # We pass a checksum of .resources to the Dockerfile.
-    # Changing any resource file changes the build argument.
-    # Changing the build argument forces that RUN layer to rebuild when --cache is used.
-    # See the RESOURCES_CHECKSUM comment in the Dockerfile for the full cache explanation.
-    resources_checksum = compute_directory_checksum(resources_dir)
-
-    # We want to use volume mount during build, which will look like this:
-    # RUN --mount=type=bind,source=...,target=... && <command>
-    # This requires the use of BuildKit (https://docs.docker.com/build/buildkit/), which is default
-    # build behavior for newer Docker clients, and includes improved build functionality.
-    # However, docker-py doesn't support BuildKit, and has an issue open for almost 6 years
-    # (https://github.com/docker/docker-py/issues/2230) so it doesn't seem like it is being added.
-    # Therefore, we use the subprocess module to call docker build... so that we can enable
-    # BuildKit, and thus mount volume during build.
-
-    creation_time = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
-
-    # Enables Docker BuildKit for advanced build features.
+    # The generated Dockerfile uses RUN bind mounts. Invoke the Docker CLI with
+    # BuildKit enabled so those mounts and their automatic cache invalidation
+    # are available.
     os.environ['DOCKER_BUILDKIT'] = '1'
 
     cmd = [
@@ -221,22 +105,17 @@ if __name__ == '__main__':
         print(f"--pull specified. Docker build will attempt to pull/update base image '{base_img}'")
         cmd.append('--pull')
 
-    if not args.cache:
+    if args.no_cache:
         cmd.append('--no-cache')
 
     labels = {
         'org.opencontainers.image.created': datetime.now(timezone.utc).isoformat(),
-        'org.opencontainers.image.title': args.meta_title,
-        'org.opencontainers.image.description': args.meta_desc,
-        'org.opencontainers.image.authors': args.meta_authors,
     }
 
     for k, v in labels.items():
         cmd += ['--label', f'{k}={v}']
 
     cmd.extend(['--tag', img_id_to_build])
-    cmd.extend(['--build-arg', f'RESOURCES_CHECKSUM={resources_checksum}'])
-
     # Always declare a 'pkgs' build context so the Dockerfile mount is always valid.
 {% if rosdep_packages_dir_mode == 'cli' %}
     # The generated build script does not know where the ROS packages live.
@@ -253,7 +132,7 @@ if __name__ == '__main__':
 {% elif rosdep_packages_dir_mode == 'fixed_relative' %}
     # The generator already knows where the ROS packages live. Relative paths are resolved from
     # this build script's directory, which is the generated Docker output directory.
-    pkgs_dir = context_dir.joinpath('{{ rosdep_packages_dir | replace("\\", "\\\\") | replace("'", "\\'") }}').resolve()
+    pkgs_dir = context_dir.joinpath({{ rosdep_packages_dir | tojson }}).resolve()
 
     if not pkgs_dir.is_dir():
         print(
@@ -264,7 +143,7 @@ if __name__ == '__main__':
 {% elif rosdep_packages_dir_mode == 'fixed_host_path' %}
     # The generator already knows where the ROS packages live. Host paths are resolved independently
     # from this build script's directory, so absolute paths and '~' paths keep their host meaning.
-    pkgs_dir = Path('{{ rosdep_packages_dir | replace("\\", "\\\\") | replace("'", "\\'") }}').expanduser().resolve()
+    pkgs_dir = Path({{ rosdep_packages_dir | tojson }}).expanduser().resolve()
 
     if not pkgs_dir.is_dir():
         print(
@@ -279,11 +158,12 @@ if __name__ == '__main__':
 
     print(
         f'Building the Docker image "{img_id_to_build}" using the base image "{base_img}", '
-        f'with active user "{image_main_user}" and "ROS 2 {{ ros_distro }}"'
+        f'with development user "{user}" and "ROS 2 {{ ros_distro }}"'
     )
-    print(f'Resources checksum: {resources_checksum}')
     print('Executing command:')
-    print(' '.join(cmd))
+    # Quote for display exactly as a user would need to paste the argv into a
+    # POSIX shell. subprocess still receives the original list directly.
+    print(shlex.join(cmd))
 
     exit_code = 0
 
@@ -300,8 +180,13 @@ if __name__ == '__main__':
             )
     except KeyboardInterrupt:
         print('Aborted by user (Ctrl-C)')
-    except Exception as e:
-        print(f'Error: {e}')
+        exit_code = 130
+    # subprocess.run can raise OSError when the Docker executable cannot be
+    # started. Do not catch every Exception: a programming error should retain
+    # its traceback instead of being disguised as a Docker launch failure.
+    except OSError as error:
+        print(f'Error: could not start Docker: {error}', file=sys.stderr)
+        exit_code = 1
     finally:
 {% if rosdep_packages_dir_mode == 'cli' %}
         # Clean up the temporary empty pkgs directory if it was created.

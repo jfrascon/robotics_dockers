@@ -13,7 +13,7 @@ handle_error() {
     local exit_code="${1:-1}"
     local error_message="${2:-Unknown error}"
 
-    log error "${error_message} (exit code: ${exit_code})"
+    log error "${error_message} (exit code: ${exit_code})" >&2
     exit "${exit_code}"
 }
 
@@ -32,11 +32,18 @@ Options:
 EOF
 }
 
+# ${BASH_SOURCE:-${0}} uses the current Bash source filename and falls back to
+# $0 when BASH_SOURCE is unavailable.
 script="${BASH_SOURCE:-${0}}"
 script_name="$(basename "${script}")"
 
 # This script is run by root when building the Docker image.
-[ "$(id --user)" -ne 0 ] && handle_error 1 "root user must be active to run the script '${script_name}'"
+executing_user_id="$(id --user 2>/dev/null)" ||
+    handle_error 1 "Could not determine which UID is executing '${script_name}'"
+
+if [ "${executing_user_id}" -ne 0 ]; then
+    handle_error 1 "Script '${script_name}' must run as UID 0; found UID '${executing_user_id}'"
+fi
 
 # Normalize arguments with GNU getopt.
 # -o ''     -> no short options
@@ -45,10 +52,10 @@ script_name="$(basename "${script}")"
 # "$@"      -> forward all original args verbatim (keeps spaces/quotes)
 # getopt    -> normalizes: reorders options first, splits values, appends a final "--"
 # on error  -> exits non-zero; we show usage and exit 2
-PARSED=$(getopt -o '' -l pkgs-dir:,help -- "$@") || {
+if ! PARSED=$(getopt -o '' -l pkgs-dir:,help -- "$@"); then
     usage
     exit 1
-}
+fi
 
 # Replace $@ with the normalized list; eval preserves quoting from getopt’s output
 eval set -- "${PARSED}"
@@ -63,7 +70,7 @@ pkgs_dir="" # optional
 while true; do
     case "${1:-}" in
     --pkgs-dir)
-        pkgs_dir="$2"
+        pkgs_dir="${2}"
         shift 2
         ;;
     --help)
@@ -89,30 +96,49 @@ ROS_DISTRO="${1}"
 TARGET_USER="${2}"
 shift 2
 
-[ "$#" -gt 0 ] && log warning "unexpected extra arguments: $*"
+if [ "$#" -gt 0 ]; then
+    log warning "unexpected extra arguments: $*"
+fi
 
-[ -z "${ROS_DISTRO}" ] && handle_error 2 "ROS_DISTRO is empty"
+if [ -z "${ROS_DISTRO}" ]; then
+    handle_error 2 "ROS_DISTRO is empty"
+fi
 
-[ -z "${TARGET_USER}" ] && handle_error 1 "TARGET_USER is empty"
+if [ -z "${TARGET_USER}" ]; then
+    handle_error 1 "TARGET_USER is empty"
+fi
 
-target_user_entry="$(getent passwd "${TARGET_USER}")"
+target_user_entry="$(getent passwd "${TARGET_USER}")" ||
+    handle_error 1 "Could not query user '${TARGET_USER}'"
 
-[ -z "${target_user_entry}" ] && handle_error 1 "User '${TARGET_USER}' does not exist"
+IFS=: read -r _ _ target_user_id target_user_pri_group_id _ target_user_home _ <<<"${target_user_entry}"
 
-target_user_home="$(echo "${target_user_entry}" | cut -d: -f6)"
+if [ -z "${target_user_id}" ]; then
+    handle_error 1 "User record for '${TARGET_USER}' has an empty UID field"
+fi
 
-[ -z "${target_user_home}" ] && handle_error 1 "Home directory for user '${TARGET_USER}' could not be determined"
+if [ -z "${target_user_pri_group_id}" ]; then
+    handle_error 1 "User record for '${TARGET_USER}' has an empty primary GID field"
+fi
 
-[ -n "${pkgs_dir}" ] && [ ! -d "${pkgs_dir}" ] && {
-    log warning "pkgs_dir '${pkgs_dir}' does not exist, ignoring it"
-    pkgs_dir="" # Ignore it
-}
+if [ -z "${target_user_home}" ]; then
+    handle_error 1 "User record for '${TARGET_USER}' has an empty home field"
+fi
+
+if [ -n "${pkgs_dir}" ]; then
+    if [ ! -d "${pkgs_dir}" ]; then
+        log warning "pkgs_dir '${pkgs_dir}' does not exist, ignoring it"
+        pkgs_dir=""
+    fi
+fi
 
 log info "Initializing rosdep"
 
 rosdep_sources_dir="/etc/ros/rosdep/sources.list.d"
 rosdep_default_sources="${rosdep_sources_dir}/20-default.list"
 
+# The ROS distribution selects this build-time path.
+# shellcheck disable=SC1090
 . /opt/ros/"${ROS_DISTRO}"/setup.bash || handle_error 1 "Sourcing ROS setup.bash failed"
 
 if [ -f "${rosdep_default_sources}" ]; then
@@ -130,7 +156,8 @@ log info "rosdep database ownership will be fixed later"
 root_home="/root"
 root_ros_home="${root_home}/.ros"
 # Make sure the ROS home directory exists.
-mkdir --parent --verbose "${root_ros_home}"
+mkdir --parent --verbose "${root_ros_home}" ||
+    handle_error 1 "Could not create root ROS home '${root_ros_home}'"
 
 HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep update --rosdistro "${ROS_DISTRO}" || handle_error 1 "rosdep update failed"
 
@@ -139,35 +166,42 @@ if [ -n "${pkgs_dir}" ]; then
     log info "Installing dependencies with rosdep for packages located at '${pkgs_dir}'"
 
     # Update cache to ensure the latest package information is available.
-    apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
+    apt-get update --quiet --quiet || handle_error 1 "apt-get update failed"
 
     HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep install -r -y --rosdistro "${ROS_DISTRO}" --from-paths "${pkgs_dir}" --ignore-src ||
         handle_error 1 "rosdep install failed"
 fi
 
-[ "${TARGET_USER}" = "root" ] && {
+if [ "${TARGET_USER}" = "root" ]; then
     log info "TARGET_USER is 'root', no need to move the rosdep databases"
     exit 0
-}
+fi
 
-# Move rosdep directory to target_user_ros_home.
-target_user_id="$(echo "${target_user_entry}" | cut -d: -f3)"
-target_user_pri_group_id="$(echo "${target_user_entry}" | cut -d: -f4)"
+# Move the generated rosdep database into the configured user's ROS directory.
+# Ownership is changed only on the directory and database created by this
+# script. Other pre-existing content below ~/.ros is deliberately not traversed.
 target_user_ros_home="${target_user_home}/.ros"
 
 if [ ! -d "${target_user_ros_home}" ]; then
-    mkdir --verbose --parent "${target_user_ros_home}"
+    mkdir --verbose --parent "${target_user_ros_home}" ||
+        handle_error 1 "Could not create target ROS home '${target_user_ros_home}'"
 elif [ -d "${target_user_ros_home}/rosdep" ]; then
     # Remove any existing rosdep database in the user home directory.
-    rm -rf "${target_user_ros_home}/rosdep" &>/dev/null
+    rm -rf "${target_user_ros_home}/rosdep" &>/dev/null ||
+        handle_error 1 "Could not remove the previous rosdep database from '${target_user_ros_home}'"
 fi
 
 log info "Moving '${root_ros_home}/rosdep' to '${target_user_ros_home}/rosdep'"
-mv --verbose "${root_ros_home}/rosdep" "${target_user_ros_home}/rosdep"
+mv --verbose "${root_ros_home}/rosdep" "${target_user_ros_home}/rosdep" ||
+    handle_error 1 "Could not move the generated rosdep database into '${target_user_ros_home}'"
 
-chown --recursive "${target_user_id}:${target_user_pri_group_id}" "${target_user_ros_home}"
+chown "${target_user_id}:${target_user_pri_group_id}" "${target_user_ros_home}" ||
+    handle_error 1 "Could not set ownership of target ROS home '${target_user_ros_home}'"
+
+chown --recursive "${target_user_id}:${target_user_pri_group_id}" "${target_user_ros_home}/rosdep" ||
+    handle_error 1 "Could not set ownership of the generated rosdep database"
 
 log info "Removing installation residues from apt cache"
-apt-get autoremove --purge -y >/dev/null
-apt-get clean >/dev/null
-rm -rf /var/lib/apt/lists/* &>/dev/null
+apt-get clean >/dev/null || handle_error 1 "Failed to clean the apt cache"
+find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + ||
+    handle_error 1 "Failed to remove apt package indexes"

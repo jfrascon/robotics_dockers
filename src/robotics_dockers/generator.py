@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import tempfile
 from importlib import resources
 from pathlib import Path
@@ -14,7 +13,7 @@ from robotics_dockers.config import (
     ResolvedDockerContextConfig,
     resolve_config,
 )
-from robotics_dockers.errors import MissingResourceError
+from robotics_dockers.errors import InvalidOutputDirectoryError, MissingResourceError
 
 ResourceSpec = list[str | dict[str, Any] | bool | None]
 
@@ -23,12 +22,15 @@ def generate_docker_context(config: DockerContextConfig) -> DockerContextResult:
     resolved_config = resolve_config(config)
     context_dir = _resolve_context_dir(resolved_config.output_dir)
     generated_files = _install_items(_create_items_to_install(resolved_config), context_dir)
-    return DockerContextResult(context_dir=context_dir, generated_files=tuple(generated_files))
+    return DockerContextResult(
+        context_dir=context_dir, generated_files=tuple(generated_files), resolved_config=resolved_config
+    )
 
 
 def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, ResourceSpec]:
-    image_main_user_home = f'/home/{config.image_main_user}'
-
+    # Jinja receives the same concise identity names as the Python model. The
+    # Dockerfile template adds the ROBOTICS_DOCKERS_* prefix only where it emits
+    # the public environment-variable contract stored in the image.
     if config.ros_distro == 'humble':
         ros_discovery_env_name = 'ROS_LOCALHOST_ONLY'
         ros_discovery_env_value = '1'
@@ -41,8 +43,11 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             'Dockerfile.j2',
             {
                 'base_img': config.base_img,
-                'image_main_user': config.image_main_user,
-                'image_main_user_home': image_main_user_home,
+                'user': config.user,
+                'user_id': config.user_id,
+                'user_home': config.user_home,
+                'primary_group': config.primary_group,
+                'primary_group_id': config.primary_group_id,
                 'ros_distro': config.ros_distro,
                 'ros_discovery_env_name': ros_discovery_env_name,
                 'ros_discovery_env_value': ros_discovery_env_value,
@@ -58,7 +63,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             {
                 'base_img': config.base_img,
                 'img_id': config.img_id,
-                'image_main_user': config.image_main_user,
+                'user': config.user,
                 'ros_distro': config.ros_distro,
                 'rosdep_packages_dir': config.rosdep_packages_dir,
                 'rosdep_packages_dir_mode': config.rosdep_packages_dir_mode,
@@ -70,11 +75,11 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             {
                 'service': f'{config.img_id.replace(":", "_").replace("/", "_")}_cont',
                 'img_id': config.img_id,
-                'image_main_user': config.image_main_user,
-                'image_main_user_home': image_main_user_home,
-                # Keep generated bind mounts outside the image user's home. The root
-                # entrypoint uses usermod to remap image-owned home content, and
-                # shadow-utils traverses mounted filesystems below that home.
+                'user_home': config.user_home,
+                'user_id': config.user_id,
+                'primary_group_id': config.primary_group_id,
+                # Workspaces are deliberately outside the home so mounting them
+                # cannot hide the environment files installed in the home.
                 'img_workspace_dir': '/workspace',
                 'img_datasets_dir': '/datasets',
                 'use_host_nvidia_driver': config.use_host_nvidia_driver,
@@ -82,32 +87,45 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             False,
         ],
         '.resources/bash_aliases_user': ['bash_aliases_user', True],
-        '.resources/deduplicate_path': ['deduplicate_path', True],
+        '.resources/configure_image_user.sh': ['configure_image_user.sh', True],
+        '.resources/configure_sudo.sh': ['configure_sudo.sh', True],
         '.resources/entrypoint_user.sh': ['entrypoint_user.sh', True],
         '.resources/env.rc': ['env.rc', True],
         '.resources/install_pkgs': ['install_pkgs', True],
         '.resources/install_base_system.sh': ['install_base_system.sh', True],
-        '.resources/install_extra_pkgs.sh': ['install_extra_pkgs.sh', True],
+        '.resources/install_extra_apt.sh': ['install_extra_apt.sh', True],
+        '.resources/install_user_extras.sh': ['install_user_extras.sh', True],
         '.resources/install_gh.sh': ['install_gh.sh', True],
         '.resources/install_ros.sh': ['install_ros2.sh', True],
         '.resources/ros.rc': ['ros.rc', True],
         '.resources/rosbuild': ['ros2build', True],
         '.resources/rosdep_init_update_install.sh': ['rosdep_init_update_install.sh', True],
-        '.resources/entrypoint_root.d': [None],
-        '.resources/extra.d/apt_packages.sh': ['extra.d/apt_packages.sh', True],
-        '.resources/extra.d/requirements.txt': ['extra.d/requirements.txt', False],
-        '.resources/extra.d/rust_packages.txt': ['extra.d/rust_packages.txt', False],
+        '.resources/extra.d/apt/keyrings.d': [None],
+        '.resources/extra.d/apt/sources.d': [None],
+        '.resources/extra.d/apt/packages.txt': ['extra.d/apt/packages.txt', False],
+        '.resources/extra.d/env.d': [None],
+        '.resources/extra.d/python/install.d': [None],
+        '.resources/extra.d/python/requirements.txt': ['extra.d/python/requirements.txt', False],
+        '.resources/extra.d/rust/install.sh.example': ['extra.d/rust/install.sh.example', False],
+        '.resources/user_preparation.d/01-delete-ubuntu-user.sh.example': [
+            'user_preparation.d/01-delete-ubuntu-user.sh.example',
+            False,
+        ],
+        '.resources/user_preparation.d/02-reuse-ubuntu-user.sh.example': [
+            'user_preparation.d/02-reuse-ubuntu-user.sh.example',
+            False,
+        ],
+        '.resources/update_image_user.sh': ['update_image_user.sh', True],
+        'Dockerfile.update-user': [
+            'Dockerfile.update-user',
+            {'user': config.user, 'user_home': config.user_home},
+            False,
+        ],
     }
 
     items_to_install['.resources/colcon_mixin_metadata.sh'] = ['colcon_mixin_metadata.sh', True]
     items_to_install['.resources/skip_rosdep_keys'] = ['skip_rosdep_keys', True]
     items_to_install['.resources/rosdep_skip_keys.txt'] = ['rosdep_skip_keys.txt', False]
-    items_to_install['.resources/entrypoint_root.sh'] = [
-        'entrypoint_root.sh.j2',
-        {'use_host_nvidia_driver': config.use_host_nvidia_driver},
-        True,
-    ]
-
     if not config.use_host_nvidia_driver:
         items_to_install['.resources/install_mesa_packages.sh'] = ['install_mesa_packages.sh', True]
 
@@ -149,16 +167,14 @@ def _create_directory(source_path: resources.abc.Traversable | None, destination
     if not source_path.is_dir():
         raise MissingResourceError(f"Required resource '{source_path}' is not a directory.")
 
-    if not destination_path.parent.exists():
-        destination_path.parent.mkdir(parents=True)
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
 
     _copy_resource_directory(source_path, destination_path)
     destination_path.chmod(0o775)
 
 
 def _create_file(source_path: resources.abc.Traversable | None, destination_path: Path, executable: bool) -> None:
-    if not destination_path.parent.exists():
-        destination_path.parent.mkdir(parents=True)
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
 
     if source_path is None:
         destination_path.touch()
@@ -171,9 +187,9 @@ def _create_file(source_path: resources.abc.Traversable | None, destination_path
 
 
 def _copy_resource_directory(source_path: resources.abc.Traversable, destination_path: Path) -> None:
-    if destination_path.exists():
-        shutil.rmtree(destination_path)
-
+    # _resolve_context_dir already rejects non-empty output directories. Do not
+    # add a second overwrite path here: an unexpected collision should fail
+    # instead of deleting something that appeared after the initial check.
     destination_path.mkdir(parents=True)
 
     for child in source_path.iterdir():
@@ -185,8 +201,7 @@ def _copy_resource_directory(source_path: resources.abc.Traversable, destination
 
 
 def _render_template(template_name: str, destination_path: Path, context: dict[str, Any], executable: bool) -> None:
-    if not destination_path.parent.exists():
-        destination_path.parent.mkdir(parents=True)
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
 
     environment = Environment(
         loader=PackageLoader('robotics_dockers', 'resources'),
@@ -201,16 +216,23 @@ def _render_template(template_name: str, destination_path: Path, context: dict[s
 
 def _resolve_context_dir(output_dir: Path | None) -> Path:
     if output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if output_dir.exists():
+            if not output_dir.is_dir():
+                raise InvalidOutputDirectoryError(f"Output path '{output_dir}' exists and is not a directory.")
+            if next(output_dir.iterdir(), None) is not None:
+                raise InvalidOutputDirectoryError(
+                    f"Output directory '{output_dir}' is not empty. Refusing to overwrite generated files or "
+                    'user customizations.'
+                )
+        else:
+            output_dir.mkdir(parents=True)
         return output_dir
 
     return Path(tempfile.mkdtemp(prefix='robotics_dockers_', dir='/tmp'))
 
 
 def _resource_path(relative_path: str) -> resources.abc.Traversable:
-    resource_path = resources.files('robotics_dockers.resources').joinpath(relative_path)
-
-    if not resource_path.exists():
-        raise MissingResourceError(f"Required resource '{relative_path}' does not exist.")
-
-    return resource_path
+    # _create_file and _create_directory perform the useful type-specific
+    # validation. A separate exists() call here would inspect every resource
+    # twice without producing a better decision.
+    return resources.files('robotics_dockers.resources').joinpath(relative_path)

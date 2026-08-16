@@ -1,111 +1,43 @@
 #!/usr/bin/env bash
+# Install operating-system tools shared by every generated development image.
+#
+# User creation deliberately does not belong here. Keeping this script independent
+# from the requested account lets Docker reuse this expensive layer when only the
+# development UID, GID or name changes.
 
 log() {
-    local type="${1:-info}"
-    local message="${2:-}"
-    printf '[%s] [%s] %s\n' \
-        "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" \
-        "${type}" \
-        "${message}"
+    local level="${1:-info}"
+    shift || true
+    printf '[%s] [%s] %s\n' "$(date --utc '+%Y-%m-%dT%H:%M:%SZ')" "${level}" "$*"
 }
 
 handle_error() {
     local exit_code="${1:-1}"
-    local error_message="${2:-Unknown error}"
-
-    log error "${error_message} (exit code: ${exit_code})"
+    shift || true
+    log error "${*:-Unknown error} (exit code: ${exit_code})" >&2
     exit "${exit_code}"
 }
 
-usage() {
-    cat <<EOF
-Usage:
-  ${script_name} TARGET_USER TARGET_USER_HOME [--help]
+executing_user_id="$(id --user 2>/dev/null)" ||
+    handle_error 1 "Could not determine which UID is executing this script"
 
-Positional arguments:
-  TARGET_USER       Target system user name
-  TARGET_USER_HOME  Home directory for the target user
-
-Options:
-  --help          Show this help and exit
-EOF
-}
-
-script="${BASH_SOURCE:-${0}}"
-script_name="$(basename "${script}")"
-
-# This script must be run by root.
-if [ "$(id --user)" -ne 0 ]; then
-    handle_error 1 "root user must be active to run the script '${script_name}'"
+if [ "${executing_user_id}" -ne 0 ]; then
+    handle_error 1 "This script must run as UID 0; found UID '${executing_user_id}'"
 fi
 
-# Pre-scan: show help if present in any position.
-for arg in "$@"; do
-    case "$arg" in
-    --help | -h)
-        usage
-        exit 0
-        ;;
-    esac
-done
+apt-get update --quiet --quiet || handle_error 1 "apt-get update failed"
 
-TARGET_USER="${1:-}"
-TARGET_USER_HOME="${2:-}"
+install_pkgs apt-utils python3-software-properties software-properties-common ||
+    handle_error 1 "Could not install the tools required to enable Ubuntu repositories"
 
-[ -z "${TARGET_USER}" ] && handle_error 1 "User not provided"
-[ -z "${TARGET_USER_HOME}" ] && handle_error 1 "User home directory not provided"
+add-apt-repository --yes universe || handle_error 1 "Could not enable the Ubuntu universe repository"
 
-target_user_shell="/bin/bash"
+# This project deliberately keeps a full distribution upgrade. Docker can reuse
+# this layer from cache even when remote apt repositories change. Use build.py
+# --no-cache when the upgrade must run again, and --pull when the base image
+# itself must also be refreshed.
+apt-get dist-upgrade --yes --no-install-recommends || handle_error 1 "The distribution upgrade failed"
 
-# Update the package list and upgrade all packages to their latest versions.
-apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
-
-# Install the apt-utils package first, to avoid warnings when installing packages if this package
-# is not installed previously.
-install_pkgs apt-utils || handle_error 1 "Failed to install apt-utils"
-
-# Install the package that allow us to add repositories.
-install_pkgs python3-software-properties software-properties-common ||
-    handle_error 1 "Failed to install add-apt-repository dependencies"
-
-# Now add-apt-repository is available, and we can add the universe repository that contains many
-# of the packages we need. Next, the index is updated, and the system is upgraded to ensure all packages are up to date.
-add-apt-repository --yes universe || handle_error 1 "Adding universe repository failed"
-
-# Upgrade the system to ensure all packages are up to date, now that apt-utils is installed.
-apt-get dist-upgrade --yes --no-install-recommends || handle_error 1 "Upgrade of the system failed"
-
-#---------------------------------------------------------------------------------------------------
-# Unminimize the system
-#---------------------------------------------------------------------------------------------------
-
-# In a development environment, man pages are useful for understanding commands and their options, so we install them.
-# Up to Ubuntu:22.04, the command 'unminimize' was already included in the Ubuntu base image provided by Docker Hub.
-# Starting with Ubuntu:24.04, the 'unminimize' command is no longer included by default. However, it is available in the
-# system repositories and must be installed before it can be used.
-
-# Check if the command exists; if not, install it if available in apt sources.
-# if ! command -v unminimize &>/dev/null; then
-#     if apt-cache policy unminimize | grep --quiet 'Candidate:'; then
-#         install_pkgs unminimize || {
-#             log "Installation of package 'unminimize' failed" >&2
-#             exit 1
-#         }
-#     else
-#         log "Warning: Package 'unminimize' is missing in apt sources! Skipping installation"
-#     fi
-# fi
-
-# Unminimize the system if the command unminimize is available.
-# command -v unminimize &>/dev/null && {
-#     log "Unminimizing the system"
-#     echo y | unminimize || {
-#         log "Unminimize command failed" >&2
-#         exit 1
-#     }
-# }
-
-# Install core packages.
 packages=(
     apt-rdepends
     automake
@@ -131,10 +63,12 @@ packages=(
     libcppunit-dev
     libtool-bin
     lldb
+    locales
     lsb-release
     nano
     net-tools
     openssh-client
+    passwd
     procps
     python3-dev
     python3-numpy
@@ -148,222 +82,43 @@ packages=(
     shfmt
     sudo
     tree
+    tzdata
     util-linux
     valgrind
     vim
     wget
 )
+install_pkgs "${packages[@]}" || handle_error 1 "Could not install the base development packages"
 
-install_pkgs "${packages[@]}" || handle_error 1 "Failed to install base system packages"
+update-alternatives --install /usr/bin/python python /usr/bin/python3 100 ||
+    handle_error 1 "Could not configure /usr/bin/python"
 
-update-alternatives --install /usr/bin/python python /usr/bin/python3 100
+log info "Configuring the system timezone as UTC"
+printf 'Etc/UTC\n' >/etc/timezone || handle_error 1 "Could not write /etc/timezone"
 
-# Set the system timezone to UTC to ensure consistent timekeeping across environments.
-# Handle timezone configuration explicitly and separately from the main package installation to avoid tzdata's
-# interactive prompts. Even with DEBIAN_FRONTEND=noninteractive, tzdata might still try to launch its dialog if the
-# timezone config files are missing or improperly set.
-# The /etc/timezone file and the /etc/localtime symlink must be created before installing tzdata.
-# The file /etc/localtime must point to a valid file under /usr/share/zoneinfo/, which is provided by the tzdata
-# package.
+ln --symbolic --force /usr/share/zoneinfo/Etc/UTC /etc/localtime ||
+    handle_error 1 "Could not configure /etc/localtime"
 
-log info "Configuring UTC time"
-echo "Etc/UTC" >/etc/timezone
-ln --symbolic --force "/usr/share/zoneinfo/Etc/UTC" /etc/localtime
+DEBIAN_FRONTEND=noninteractive dpkg-reconfigure tzdata || handle_error 1 "Could not configure tzdata"
 
-if ! dpkg --status tzdata >/dev/null 2>&1; then
-    TZ=Etc/UTC DEBIAN_FRONTEND=noninteractive install_pkgs tzdata || handle_error 1 "Failed to install tzdata"
-fi
+log info "Configuring the en_US.UTF-8 locale"
+locale_file="$(mktemp)" || handle_error 1 "Could not create a temporary locale file"
 
-dpkg-reconfigure --frontend noninteractive tzdata
-export TZ=Etc/UTC # In case any command in this script after this line needs it.
+trap 'rm -f -- "${locale_file}"' EXIT
 
-log info "Configuring locales to en_US.UTF-8"
-# Install the locales package to support UTF-8 encoding.
-install_pkgs locales || handle_error 1 "Failed to install locales"
+printf 'en_US.UTF-8 UTF-8\n' >"${locale_file}" || handle_error 1 "Could not prepare the locale definition"
 
-tmp="$(mktemp)"
-printf 'en_US.UTF-8 UTF-8\n' >"${tmp}"
-install --owner=root --group=root --mode=0644 "${tmp}" /etc/locale.gen ||
-    handle_error 1 "Failed to install /etc/locale.gen"
-rm -f "${tmp}"
+install --owner root --group root --mode 0644 "${locale_file}" /etc/locale.gen ||
+    handle_error 1 "Could not install /etc/locale.gen"
 
 locale-gen en_US.UTF-8 || handle_error 1 "locale-gen failed"
 
-update-locale LANG=en_US.UTF-8
-export LANG=en_US.UTF-8 # In case any command in this script after this line needs it.
+update-locale LANG=en_US.UTF-8 || handle_error 1 "update-locale failed"
 
-#---------------------------------------------------------------------------------------------------
-# Create the requested user
-#---------------------------------------------------------------------------------------------------
-# Starting with Ubuntu 24.04, a default non-root user named 'ubuntu' exists with UID 1000 and primary group 'ubuntu'
-# with GID 1000.
-# Reference: https://bugs.launchpad.net/cloud-images/+bug/2005129
+# Removing apt's download and index data in this same build step keeps it out of
+# the resulting layer. autoremove is intentionally not used: it can remove a
+# dependency that a later project customization expects to remain installed.
+apt-get clean >/dev/null || handle_error 1 "Could not clean the apt cache"
 
-[ "${TARGET_USER}" = root ] && handle_error 1 "TARGET_USER cannot be root"
-
-# If 'TARGET_USER' does not exist, it will be created with the specified shell and home
-# directory.
-# If 'TARGET_USER' already exists, its shell and home directory will be updated to match the
-# specified ones:
-# - Shell: '/bin/bash'
-# - Home directory: '${TARGET_USER_HOME}'
-if ! getent passwd "${TARGET_USER}" >/dev/null 2>&1; then
-    # Create the user with the specified home directory and shell. Home is created physically.
-    # when no option --home-dir is specified, the home directory is created in /home/<username>.
-    useradd --create-home --home-dir "${TARGET_USER_HOME}" --shell "${target_user_shell}" "${TARGET_USER}" ||
-        handle_error 1 "Failed to create user '${TARGET_USER}'!"
-
-    target_user_entry="$(getent passwd "${TARGET_USER}")"
-    target_user_id="$(echo "${target_user_entry}" | cut -d: -f3)"
-    target_user_pri_group_id="$(echo "${target_user_entry}" | cut -d: -f4)"
-    target_user_pri_group="$(getent group "${target_user_pri_group_id}" | cut -d: -f1)"
-
-    log info "Created user '${TARGET_USER}' (UID '${target_user_id}') with primary group '${target_user_pri_group}' (GID '${target_user_pri_group_id}')"
-else
-    # If the user already exists, check if the shell match the requested ones.
-    target_user_entry="$(getent passwd "${TARGET_USER}")"
-    target_user_id="$(echo "${target_user_entry}" | cut -d: -f3)"
-    target_user_pri_group_id="$(echo "${target_user_entry}" | cut -d: -f4)"
-    target_user_pri_group="$(getent group "${target_user_pri_group_id}" | cut -d: -f1)"
-    current_shell="$(echo "${target_user_entry}" | cut -d: -f7)"
-
-    log info "User '${TARGET_USER}' (UID '${target_user_id}') with primary group '${target_user_pri_group}' (GID '${target_user_pri_group_id}') already exists, verifying properties"
-
-    if [ "${current_shell}" != "${target_user_shell}" ]; then
-        log info "Updating shell of user '${TARGET_USER}' (UID '${target_user_id}') from '${current_shell}' to '${target_user_shell}'"
-        usermod --shell "${target_user_shell}" "${TARGET_USER}" ||
-            handle_error 1 "Failed to set shell of user '${TARGET_USER}' (UID '${target_user_id}') to '${target_user_shell}'!"
-    fi
-
-    # Check if the home directory exists.
-    current_home="$(echo "${target_user_entry}" | cut -d: -f6)"
-
-    if [ -z "${current_home}" ]; then
-        usermod --home "${TARGET_USER_HOME}" "${TARGET_USER}" ||
-            handle_error 1 "Failed to set home directory of user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER_HOME}'!"
-    elif [ "${current_home}" != "${TARGET_USER_HOME}" ]; then
-        log info "Updating home directory of user '${TARGET_USER}' (UID '${target_user_id}') from '${current_home}' to '${TARGET_USER_HOME}'"
-        #--move-home: Move the content of the user's home directory to the new location
-        usermod --home "${TARGET_USER_HOME}" --move-home "${TARGET_USER}" ||
-            handle_error 1 "Failed to set home directory of user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER_HOME}'!"
-    fi
-fi
-
-# Ensure user is member of secondary groups dialout, sudo and video.
-# dialout group is used to access serial ports (devices like /dev/ttyusb<x>).
-# video group is used to access video devices (like /dev/video<x>, /dev/dri/card<x>).
-for group in dialout sudo video; do
-    group_entry="$(getent group "${group}")"
-
-    if [ -z "${group_entry}" ]; then
-        log warning "Group '${group}' does not exist!"
-    # Check if the user is not already a member of the group.
-    elif ! id -nG "${TARGET_USER}" | grep --quiet --word-regexp "${group}"; then
-        group_id="$(echo "${group_entry}" | cut -d: -f3)"
-        log info "Adding user '${TARGET_USER}' (UID '${target_user_id}') to group '${group}' (GID '${group_id}')"
-        usermod --append --groups "${group}" "${TARGET_USER}" ||
-            handle_error 1 "Failed to add user '${TARGET_USER}' (UID '${target_user_id}') to group '${group}' (GID '${group_id}')!"
-    else
-        group_id="$(echo "${group_entry}" | cut -d: -f3)"
-        log info "User '${TARGET_USER}' (UID '${target_user_id}') is already a member of group '${group}' (GID '${group_id}')"
-    fi
-done
-
-# Set password for the non-root user.
-# The non-root user can run commands with sudo without a password.
-# INTENTIONAL: the password is set to the username for convenience in development images.
-# This is acceptable because these images are for local development only and not for production.
-log info "Setting password for user '${TARGET_USER}' (UID '${target_user_id}') to '${TARGET_USER}'"
-password="${TARGET_USER}"
-
-echo "${TARGET_USER}:${password}" | chpasswd ||
-    handle_error 1 "Failed to set password for '${TARGET_USER}' (UID '${target_user_id}')"
-
-# The following block is disabled and is left here for reference.
-# It is not recommended to configure passwordless sudo in a Docker image, as it can lead to
-# security issues.
-
-# Configure passwordless sudo.
-# log info "Configuring passwordless sudo for user '${TARGET_USER}' (UID '${target_user_id}')"
-# sudoers_file="/etc/sudoers.d/${TARGET_USER}"
-# tmp_sudoers="$(mktemp)"
-# echo "${TARGET_USER} ALL=(ALL) NOPASSWD:ALL" >"${tmp_sudoers}"
-
-# If the temporary sudoers file is not valid, it will be removed and the script will exit with an
-# error.
-# Otherwise, the temporary sudoers file will be installed in the sudoers directory with the correct
-# permissions, and the temporary file will be removed.
-# if ! visudo --check --file "${tmp_sudoers}" >/dev/null 2>&1; then
-#     log "Error: Invalid sudoers content, aborting" >&2
-#     rm -f "${tmp_sudoers}"
-#     exit 1
-# fi
-#
-# install --owner=root --group=root --mode=0440 "${tmp_sudoers}" "${sudoers_file}"
-# rm -f "${tmp_sudoers}"
-
-# Create basic folders for configuration and binaries.
-dirs_to_create=(
-    "${TARGET_USER_HOME}/.cache"  # XDG_CACHE_HOME
-    "${TARGET_USER_HOME}/.config" # XDG_CONFIG_HOME
-    "${TARGET_USER_HOME}/.local/bin"
-    "${TARGET_USER_HOME}/.local/lib"
-    "${TARGET_USER_HOME}/.local/share" # XDG_DATA_HOME
-    "${TARGET_USER_HOME}/.local/state" # XDG_STATE_HOME
-)
-
-for dir in "${dirs_to_create[@]}"; do
-    if [ ! -d "${dir}" ]; then
-        log info "Creating directory '${dir}'"
-        install --directory --mode 755 --owner "${TARGET_USER}" --group "${target_user_pri_group}" "${dir}"
-    else
-        log info "Directory '${dir}' already exists"
-    fi
-done
-
-# Create the .bashrc file if it does not exist.
-if [ ! -s "${TARGET_USER_HOME}/.bashrc" ]; then
-    log info "File '${TARGET_USER_HOME}/.bashrc' does not exist. Copying file /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
-    # Copy the default .bashrc from /etc/skel to the user's home directory.
-    # Ownership is fixed later in the script with `chown ...`, so we can copy the file as root.
-    cp --verbose /etc/skel/.bashrc "${TARGET_USER_HOME}/.bashrc" ||
-        handle_error 1 "Failed to copy /etc/skel/.bashrc to '${TARGET_USER_HOME}/.bashrc'"
-fi
-
-#---------------------------------------------------------------------------------------------------
-# Install Python packages for the user that are commonly used for development.
-#---------------------------------------------------------------------------------------------------
-python_packages=(argcomplete ruff cmake-format pre-commit jinja2 python-rapidjson uv)
-
-log info "Installing Python packages for the user '${TARGET_USER}': ${python_packages[*]}"
-
-# --user installs into the user's home directory (~/.local/lib/python3.x/site-packages/)
-# and exposes CLI binaries under ~/.local/bin/, leaving the system Python untouched.
-# The --no-cache-dir flag is used to avoid caching the downloaded packages.
-# The --disable-pip-version-check flag suppresses the 'new version of pip available' warning.
-pip_args=(--user --no-cache-dir --disable-pip-version-check)
-
-# The '--break-system-packages', described in PEP 668, was introduced in Python 3.11+ from Debian Bookworm and
-# Ubuntu 24.04 (Noble Numbat), onwards. PEP 668 prevents installing packages with 'pip install --user' in
-# system-managed environments. To work around this, the '--break-system-packages' flag is used to allow the
-# installation of packages in user-managed environments.
-# Ubuntu 22.04 (Jammy), and below, does NOT have this restriction, so 'pip install --user' should work fine.
-if python3 -m pip install --help | grep --quiet 'break-system-packages'; then
-    pip_args+=("--break-system-packages")
-fi
-
-# -H flag is used to set the HOME environment variable to the home directory of the target user.
-# The HOME environment variable is used by pip to determine the location of the user's home directory.
-# To avoid warning messages when installing packages we set the environment variable PATH to include
-# the user's local bin directory.
-sudo -H -u "${TARGET_USER}" env PATH="${TARGET_USER_HOME}/.local/bin:${PATH}" \
-    python3 -m pip install "${pip_args[@]}" "${python_packages[@]}" ||
-    handle_error 1 "Failed to install Python packages for user '${TARGET_USER}'"
-
-#---------------------------------------------------------------------------------------------------
-# Cleanup
-#---------------------------------------------------------------------------------------------------
-log info "Removing installation residues from apt cache"
-apt-get autoremove --purge -y >/dev/null
-apt-get clean >/dev/null
-rm -rf /var/lib/apt/lists/* 1>/dev/null 2>&1
+find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + ||
+    handle_error 1 "Could not remove apt package indexes"

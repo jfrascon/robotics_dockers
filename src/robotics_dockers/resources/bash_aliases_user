@@ -9,8 +9,9 @@ alias lat="ls -lha --sort=time --time-style=long-iso --color=auto"
 alias ltr="ls -lhtr --color=auto"
 alias latr="ls -lha --sort=time --reverse --time-style=long-iso --color=auto"
 
-# List only dot files.
-l.() {
+# List only dot files. A subshell keeps nullglob and dotglob local to this
+# command instead of changing how later commands in the interactive shell expand.
+l.() (
     shopt -s nullglob dotglob
     local hidden_files=(.??*)
     if [ ${#hidden_files[@]} -gt 0 ]; then
@@ -18,4 +19,4 @@ l.() {
     else
         echo "No hidden files found"
     fi
-}
+)

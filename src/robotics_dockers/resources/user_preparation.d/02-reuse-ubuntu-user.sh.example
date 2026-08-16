@@ -1,0 +1,98 @@
+# Rename this file so it ends in .sh to reuse Ubuntu 24.04's pre-created
+# 1000:1000 account. The checks deliberately run before either rename so an
+# unexpected base image is not left half-modified.
+
+handle_error() {
+    local exit_code="${1:-1}"
+    shift || true
+    printf 'Error: %s (exit code: %s)\n' "${*:-Unknown error}" "${exit_code}" >&2
+    exit "${exit_code}"
+}
+
+source_user="ubuntu"
+source_group="ubuntu"
+source_home="/home/ubuntu"
+source_shell="/bin/bash"
+
+source_user_name_count="$(awk -F: -v name="${source_user}" '$1 == name { count++ } END { print count + 0 }' /etc/passwd)" ||
+    handle_error 1 "Could not inspect user '${source_user}'"
+source_group_name_count="$(awk -F: -v name="${source_group}" '$1 == name { count++ } END { print count + 0 }' /etc/group)" ||
+    handle_error 1 "Could not inspect group '${source_group}'"
+# Renaming either half of a conflicting identity could leave a partial change.
+# Require one public local record before the first groupmod or usermod call.
+# Those commands validate and update the protected records themselves.
+if [ "${source_user_name_count}" -ne 1 ]; then
+    handle_error 1 "User '${source_user}' must have exactly one /etc/passwd entry; found '${source_user_name_count}'"
+fi
+
+if [ "${source_group_name_count}" -ne 1 ]; then
+    handle_error 1 "Group '${source_group}' must have exactly one /etc/group entry; found '${source_group_name_count}'"
+fi
+
+source_user_entry="$(awk -F: -v name="${source_user}" '$1 == name { print }' /etc/passwd)" ||
+    handle_error 1 "Could not read user '${source_user}'"
+source_group_entry="$(awk -F: -v name="${source_group}" '$1 == name { print }' /etc/group)" ||
+    handle_error 1 "Could not read group '${source_group}'"
+IFS=: read -r _ _ source_user_id source_primary_group_id _ actual_source_home actual_source_shell <<<"${source_user_entry}"
+source_group_id="$(cut -d: -f3 <<<"${source_group_entry}")" || handle_error 1 "Could not read GID of '${source_group}'"
+
+if [ "${source_user_id}" != "${ROBOTICS_DOCKERS_USER_ID}" ]; then
+    handle_error 1 "User '${source_user}' has UID '${source_user_id}'; expected requested UID '${ROBOTICS_DOCKERS_USER_ID}'"
+fi
+
+if [ "${source_primary_group_id}" != "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" ]; then
+    handle_error 1 "User '${source_user}' has primary GID '${source_primary_group_id}'; expected '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}'"
+fi
+
+if [ "${source_group_id}" != "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" ]; then
+    handle_error 1 "Group '${source_group}' has GID '${source_group_id}'; expected '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}'"
+fi
+
+if [ "${actual_source_home}" != "${source_home}" ]; then
+    handle_error 1 "User '${source_user}' uses home '${actual_source_home}'; expected '${source_home}'"
+fi
+
+if [ "${actual_source_shell}" != "${source_shell}" ]; then
+    handle_error 1 "User '${source_user}' uses shell '${actual_source_shell}'; expected '${source_shell}'"
+fi
+
+if [ -L "${source_home}" ]; then
+    handle_error 1 "Home '${source_home}' must not be a symbolic link"
+fi
+
+if [ ! -d "${source_home}" ]; then
+    handle_error 1 "Home '${source_home}' does not exist or is not a directory"
+fi
+
+if [ "${ROBOTICS_DOCKERS_USER}" != "${source_user}" ]; then
+    if getent passwd "${ROBOTICS_DOCKERS_USER}" >/dev/null 2>&1; then
+        handle_error 1 "Target user name '${ROBOTICS_DOCKERS_USER}' already exists"
+    fi
+
+    if [ -L "${ROBOTICS_DOCKERS_USER_HOME}" ]; then
+        handle_error 1 "Target home '${ROBOTICS_DOCKERS_USER_HOME}' already exists as a symbolic link"
+    fi
+
+    if [ -e "${ROBOTICS_DOCKERS_USER_HOME}" ]; then
+        handle_error 1 "Target home '${ROBOTICS_DOCKERS_USER_HOME}' already exists"
+    fi
+fi
+if [ "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" != "${source_group}" ]; then
+    if getent group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" >/dev/null 2>&1; then
+        handle_error 1 "Target group name '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}' already exists"
+    fi
+fi
+
+if [ "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" != "${source_group}" ]; then
+    groupmod --new-name "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" "${source_group}" ||
+        handle_error 1 "Could not rename group '${source_group}' to '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}'"
+fi
+if [ "${ROBOTICS_DOCKERS_USER}" != "${source_user}" ]; then
+    usermod --login "${ROBOTICS_DOCKERS_USER}" --home "${ROBOTICS_DOCKERS_USER_HOME}" --move-home "${source_user}" ||
+        handle_error 1 "The group rename completed, but user '${source_user}' could not be renamed and moved"
+fi
+
+# configure_image_user.sh runs immediately after this hook and verifies the
+# resulting public user, group and home contract. Repeating those checks here
+# would only duplicate the next build step.
+exit 0

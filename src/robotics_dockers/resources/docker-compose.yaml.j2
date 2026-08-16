@@ -3,16 +3,15 @@ services:
   {{ service }}:
     image: {{ img_id }}
 
-    # The container starts as root because the entrypoint adapts the account to
-    # HOST_UID / HOST_UPGID before setpriv starts the development process.
-    user: root
+    # No user override is needed. The image was built with the final development
+    # UID and GID and declares that account with its Dockerfile USER instruction.
 
     privileged: false
 
     # Keep only if you really need to create or modify network interfaces
     # inside the container.
-    cap_add:
-      - NET_ADMIN # Be able to create network devices inside the container
+    # cap_add:
+    #   - NET_ADMIN # Enable only when a project must create or modify network devices.
 
     # ROS 2/DDS development is usually simpler with host networking,
     # especially for discovery, multicast/unicast and robot/sensor networks.
@@ -28,7 +27,7 @@ services:
     # Usually not needed when all ROS 2 nodes run inside the same container.
     # ipc: host
 
-    working_dir: {{ image_main_user_home }}
+    working_dir: {{ user_home }}
 
     tty: true
     stdin_open: true
@@ -47,21 +46,25 @@ services:
     {% endif %}
 
     tmpfs:
-      - /run/user/${HOST_UID:?HOST_UID must be set}:mode=700,uid=${HOST_UID:?HOST_UID must be set},gid=${HOST_UPGID:?HOST_UPGID must be set}
+      # Compose creates the volatile XDG directory with the same numeric identity
+      # that was stored in the image. The entrypoint validates it but never
+      # changes its mode or ownership.
+      - /run/user/{{ user_id }}:mode=700,uid={{ user_id }},gid={{ primary_group_id }}
 
     volumes:
       # +------------------+
       # | Project mappings |
       # +------------------+
-      # Keep project mounts outside IMAGE_MAIN_USER's home. If a custom mount is
-      # placed below the home, usermod treats it like other home content while
-      # adapting the image user's UID and primary GID.
+      # Keep project mounts outside the development home so they cannot hide the
+      # environment files installed there. No runtime ownership repair occurs.
+      # ${HOST_ROS_WORKSPACE:?message} makes Compose stop during interpolation
+      # with that message when HOST_ROS_WORKSPACE is unset or empty.
       - ${HOST_ROS_WORKSPACE:?Set HOST_ROS_WORKSPACE to the path of your ROS workspace on the host}:{{ img_workspace_dir }}
 
       # +------------------+
       # | Dataset mappings |
       # +------------------+
-      # The suggested target is also outside IMAGE_MAIN_USER's home for the same reason.
+      # The suggested target is also outside the development home.
       #- ~/datasets:{{ img_datasets_dir }}
 
       # +-------------------+
@@ -72,8 +75,10 @@ services:
       #
       #   scripts/install-docker-gui-support.sh
       - type: bind
+        # ${HOST_XAUTHORITY_FILE:?message} makes Compose stop during interpolation
+        # when the required host path is unset or empty.
         source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must be set}"
-        target: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
+        target: "/run/user/{{ user_id }}/docker-xwayland.xauth"
         read_only: true
         bind:
           create_host_path: false
@@ -125,9 +130,11 @@ services:
 
     environment:
       # Use the host XWayland display and the Xauthority file mounted above.
+      # ${DISPLAY:?message} makes Compose stop during interpolation when DISPLAY
+      # is unset or empty.
       DISPLAY: "${DISPLAY:?DISPLAY must be set}"
-      XDG_RUNTIME_DIR: "/run/user/${HOST_UID:?HOST_UID must be set}"
-      XAUTHORITY: "/run/user/${HOST_UID:?HOST_UID must be set}/docker-xwayland.xauth"
+      XDG_RUNTIME_DIR: "/run/user/{{ user_id }}"
+      XAUTHORITY: "/run/user/{{ user_id }}/docker-xwayland.xauth"
       CONTAINER_ROS_WORKSPACE: "{{ img_workspace_dir }}"
 
       # Force Qt applications such as RViz and Gazebo to use X11 through
@@ -135,23 +142,13 @@ services:
       QT_QPA_PLATFORM: "xcb"
       QT_X11_NO_MITSHM: "1"
 
+      # ${TERM:-xterm-256color} uses the host TERM value when it is non-empty
+      # and otherwise supplies the shown default.
       TERM: "${TERM:-xterm-256color}"
       {% if use_host_nvidia_driver %}
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"
       {% endif %}
-
-      # Used by the entrypoint to remap the container user before dropping root.
-      # How to provide HOST_UID and HOST_UPGID (choose one):
-      #   1. .env file next to this docker-compose file:
-      #        HOST_UID=1000
-      #        HOST_UPGID=1000
-      #   2. Export in your shell before running docker compose:
-      #        export HOST_UID=$(id -u) HOST_UPGID=$(id -g)
-      #   3. Inline when running docker compose:
-      #        HOST_UID=$(id -u) HOST_UPGID=$(id -g) docker compose up
-      HOST_UID: "${HOST_UID:?HOST_UID must be set}"
-      HOST_UPGID: "${HOST_UPGID:?HOST_UPGID must be set}"
 
     # Add the GID of the render device group so that all container processes
     # (including those opened by VS Code) can access /dev/dri/renderD* for
@@ -168,10 +165,12 @@ services:
     #   3. Inline when running docker compose:
     #        RENDER_GID=$(stat -c %g /dev/dri/renderD128) docker compose up
     #
-    # The entrypoint preserves this inherited numeric GID when it drops root.
-    # Docker also applies group_add to later processes created with docker exec,
-    # including processes started by VS Code.
+    # group_add is supplementary: it does not replace the primary GID stored in
+    # the image and therefore does not prevent the entrypoint from loading the
+    # development environment. Docker also applies it to docker exec processes.
     group_add:
+      # ${RENDER_GID:?message} makes Compose stop during interpolation when the
+      # render-device GID is unset or empty.
       - "${RENDER_GID:?RENDER_GID must be set}"
 
     # init: true enables a tiny init (tini) as PID 1 inside the container.

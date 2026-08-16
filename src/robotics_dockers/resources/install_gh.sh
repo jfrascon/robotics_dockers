@@ -13,19 +13,20 @@ handle_error() {
     local exit_code="${1:-1}"
     local error_message="${2:-Unknown error}"
 
-    log error "${error_message} (exit code: ${exit_code})"
+    log error "${error_message} (exit code: ${exit_code})" >&2
     exit "${exit_code}"
 }
 
+# ${BASH_SOURCE:-${0}} uses the current Bash source filename and falls back to
+# $0 when BASH_SOURCE is unavailable.
 script="${BASH_SOURCE:-${0}}"
 script_name="$(basename "${script}")"
 
-if [ "$(id --user)" -ne 0 ]; then
-    handle_error 1 "root user must be active to run the script '${script_name}'"
-fi
+executing_user_id="$(id --user 2>/dev/null)" ||
+    handle_error 1 "Could not determine which UID is executing '${script_name}'"
 
-if ! command -v wget >/dev/null 2>&1; then
-    handle_error 1 "wget is required to install GitHub CLI"
+if [ "${executing_user_id}" -ne 0 ]; then
+    handle_error 1 "Script '${script_name}' must run as UID 0; found UID '${executing_user_id}'"
 fi
 
 gpg_dir="/etc/apt/keyrings"
@@ -55,9 +56,11 @@ deb_line="deb [arch=${architecture} signed-by=${gpg_file}] ${url} stable main"
 log info "Writing GitHub CLI APT source to '${list_file}'"
 echo "${deb_line}" >"${list_file}" || handle_error 1 "Failed to write '${list_file}'"
 
-apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed after adding GitHub CLI source"
+apt-get update --quiet --quiet || handle_error 1 "apt-get update failed after adding GitHub CLI source"
 install_pkgs gh || handle_error 1 "Failed to install GitHub CLI"
 
-gh --version >/dev/null || handle_error 1 "GitHub CLI is not available after installation"
+apt-get clean >/dev/null || handle_error 1 "Failed to clean the apt cache after GitHub CLI installation"
+find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + ||
+    handle_error 1 "Failed to remove apt package indexes after GitHub CLI installation"
 
 log info "GitHub CLI installed successfully"

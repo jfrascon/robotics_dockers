@@ -20,7 +20,7 @@ log() {
 handle_error() {
     local exit_code="${1:-1}"
     local error_message="${2:-Unknown error}"
-    log error "${error_message} (exit code: ${exit_code})"
+    log error "${error_message} (exit code: ${exit_code})" >&2
     exit "${exit_code}"
 }
 
@@ -36,7 +36,8 @@ remove_gpg_key_file() {
         while IFS= read -r signed_by_path; do
             if [ -f "${signed_by_path}" ]; then
                 log info "Removing GPG key file '${signed_by_path}'"
-                rm --force "${signed_by_path}"
+                rm --force "${signed_by_path}" ||
+                    handle_error 1 "Could not remove legacy GPG key '${signed_by_path}'"
             fi
         done
 }
@@ -53,20 +54,29 @@ sanitize() {
 
     local matched_files
     matched_files="$(find /etc/apt/ -type f -name '*.list' \
-        -exec grep --files-with-matches --extended-regexp "${ros_deb_pattern}" {} + 2>/dev/null)"
+        -exec grep --files-with-matches --extended-regexp "${ros_deb_pattern}" {} + 2>/dev/null)" ||
+        handle_error 1 "Could not inspect apt sources for legacy ROS entries"
 
     # Nothing to sanitize, exit early to avoid a spurious empty-string iteration.
-    [ -z "${matched_files}" ] && return 0
+    if [ -z "${matched_files}" ]; then
+        return 0
+    fi
 
     while IFS= read -r matched_file; do
         if [ "${matched_file}" = "/etc/apt/sources.list" ]; then
-            remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}"
+            remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}" ||
+                handle_error 1 "Could not remove a key referenced by '${matched_file}'"
+
             log info "ROS deb line found in '${matched_file}', removing matching lines"
-            sed --in-place --regexp-extended "\#${ros_deb_pattern}#d" "${matched_file}"
+            sed --in-place --regexp-extended "\#${ros_deb_pattern}#d" "${matched_file}" ||
+                handle_error 1 "Could not remove the legacy ROS source from '${matched_file}'"
         else
-            remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}"
+            remove_gpg_key_file "${matched_file}" "${ros_deb_pattern}" ||
+                handle_error 1 "Could not remove a key referenced by '${matched_file}'"
+
             log info "ROS deb line found in '${matched_file}', removing file"
-            rm --force "${matched_file}"
+            rm --force "${matched_file}" ||
+                handle_error 1 "Could not remove legacy ROS source file '${matched_file}'"
         fi
     done <<<"${matched_files}"
 }
@@ -75,33 +85,61 @@ sanitize() {
 # Entry point
 # --------------------------------------------------------------------------------------------------
 
+# ${BASH_SOURCE:-${0}} uses the current Bash source filename and falls back to
+# $0 when BASH_SOURCE is unavailable.
 script="${BASH_SOURCE:-${0}}"
 script_name="$(basename "${script}")"
 
-[ "$(id --user)" -ne 0 ] && handle_error 1 "root user must be active to run '${script_name}'"
+executing_user_id="$(id --user 2>/dev/null)" ||
+    handle_error 1 "Could not determine which UID is executing '${script_name}'"
+
+if [ "${executing_user_id}" -ne 0 ]; then
+    handle_error 1 "Script '${script_name}' must run as UID 0; found UID '${executing_user_id}'"
+fi
 
 ROS_DISTRO="${1}"
-[ -z "${ROS_DISTRO}" ] && handle_error 1 "No ROS_DISTRO provided. Usage: ${script_name} <ros_distro>"
+if [ -z "${ROS_DISTRO}" ]; then
+    handle_error 1 "No ROS_DISTRO provided. Usage: ${script_name} <ros_distro>"
+fi
 
 # shellcheck disable=SC1091
-. /etc/os-release
+. /etc/os-release || handle_error 1 "Could not load operating-system metadata from '/etc/os-release'"
+
 # shellcheck disable=SC2153
 version_codename="${VERSION_CODENAME}"
+if [ -z "${version_codename}" ]; then
+    handle_error 1 "VERSION_CODENAME is empty in '/etc/os-release'"
+fi
 
 # --------------------------------------------------------------------------------------------------
 # Check for existing ROS installation.
 # --------------------------------------------------------------------------------------------------
-ros_distro_installed="$(dpkg --list |
-    sed -nE 's/^ii\s+ros-([a-z]+)-ros-core.*$/\1/p' |
-    tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+installed_package_records="$(dpkg-query --show --showformat='${db:Status-Abbrev} ${binary:Package}\n')" ||
+    handle_error 1 "Could not inspect installed packages"
 
-num_ros_distros="$(echo "${ros_distro_installed}" | wc -w)"
+ros_distro_installed="$(awk '
+    $1 == "ii" && $2 ~ /^ros-[a-z]+-ros-core(:[^[:space:]]+)?$/ {
+        distro = $2
+        sub(/^ros-/, "", distro)
+        sub(/-ros-core(:.*)?$/, "", distro)
+        printf "%s%s", separator, distro
+        separator = " "
+    }
+    END { print "" }
+' <<<"${installed_package_records}")" || handle_error 1 "Could not identify an installed ROS distribution"
 
-[ "${num_ros_distros}" -gt 1 ] &&
+num_ros_distros="$(awk '{ print NF }' <<<"${ros_distro_installed}")" ||
+    handle_error 1 "Could not count installed ROS distributions"
+
+if [ "${num_ros_distros}" -gt 1 ]; then
     handle_error 1 "More than one ROS distro is installed: ${ros_distro_installed}"
+fi
 
-[ "${num_ros_distros}" -eq 1 ] && [ "${ROS_DISTRO}" != "${ros_distro_installed}" ] &&
-    handle_error 1 "Found ROS '${ros_distro_installed}' installed, but '${ROS_DISTRO}' was requested"
+if [ "${num_ros_distros}" -eq 1 ]; then
+    if [ "${ROS_DISTRO}" != "${ros_distro_installed}" ]; then
+        handle_error 1 "Found ROS '${ros_distro_installed}' installed, but '${ROS_DISTRO}' was requested"
+    fi
+fi
 
 # --------------------------------------------------------------------------------------------------
 # ROS packages to install.
@@ -140,7 +178,7 @@ packages=(
 # --------------------------------------------------------------------------------------------------
 sanitize "${version_codename}"
 
-apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
+apt-get update --quiet --quiet || handle_error 1 "apt-get update failed"
 install_pkgs apt-utils || handle_error 1 "Failed to install apt-utils"
 install_pkgs python3-software-properties software-properties-common ||
     handle_error 1 "Failed to install add-apt-repository dependencies"
@@ -159,11 +197,21 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
         mkdir --verbose --parent "${gpg_dir}" || handle_error 1 "Failed to create '${gpg_dir}'"
     fi
 
-    log info "Adding ROS GPG key to '${gpg_file}'"
+    # Download and convert the key as two explicit operations. A pipeline would
+    # report only the status of its last command unless pipefail were enabled,
+    # which could hide a failed download behind a successful gpg invocation.
+    downloaded_ros_key="$(mktemp)" || handle_error 1 "Could not create a temporary file for the ROS key"
     curl --fail --silent --show-error --location \
-        https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc |
-        gpg --dearmor --output "${gpg_file}" ||
-        handle_error 1 "Downloading or dearmoring the ROS 2 GPG key failed"
+        --output "${downloaded_ros_key}" \
+        https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc || {
+        rm -f -- "${downloaded_ros_key}"
+        handle_error 1 "Downloading the ROS 2 GPG key failed"
+    }
+    gpg --dearmor --output "${gpg_file}" "${downloaded_ros_key}" || {
+        rm -f -- "${downloaded_ros_key}"
+        handle_error 1 "Converting the ROS 2 GPG key failed"
+    }
+    rm -f -- "${downloaded_ros_key}" || handle_error 1 "Could not remove the temporary ROS key"
 
     chmod 644 "${gpg_file}" || handle_error 1 "Failed to set permissions on '${gpg_file}'"
 
@@ -178,17 +226,20 @@ if ! dpkg --status "${ros_apt_source_package}" >/dev/null 2>&1; then
     packages+=("${ros_apt_source_package}")
 fi
 
-apt-get update --yes --quiet --quiet || handle_error 1 "apt-get update failed"
+apt-get update --quiet --quiet || handle_error 1 "apt-get update failed"
 install_pkgs "${packages[@]}" || handle_error 1 "Failed to install ROS 2 packages"
 
 # If we created a temporary list file, remove it and its GPG key now that ros2-apt-source
 # manages repository and key going forward.
 if [ -n "${ros_list_file}" ]; then
-    rm -f "${ros_list_file}"
-    rm -f "${gpg_file}"
+    rm -f "${ros_list_file}" ||
+        handle_error 1 "Could not remove temporary ROS source '${ros_list_file}'"
+
+    rm -f "${gpg_file}" ||
+        handle_error 1 "Could not remove temporary ROS key '${gpg_file}'"
 fi
 
 log info "Removing installation residues from apt cache"
-apt-get autoremove --purge -y >/dev/null
-apt-get clean >/dev/null
-rm -rf /var/lib/apt/lists/*
+apt-get clean >/dev/null || handle_error 1 "Failed to clean the apt cache"
+find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + ||
+    handle_error 1 "Failed to remove apt package indexes"

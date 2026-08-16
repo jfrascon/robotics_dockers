@@ -16,7 +16,7 @@ handle_error() {
     local exit_code="${1:-1}"
     local error_message="${2:-Unknown error}"
 
-    log error "${error_message} (exit code: ${exit_code})"
+    log error "${error_message} (exit code: ${exit_code})" >&2
     exit "${exit_code}"
 }
 
@@ -93,9 +93,7 @@ fi
 
 log info "Requesting administrative privileges"
 
-if ! sudo -v; then
-    handle_error 1 "Failed to acquire administrative privileges"
-fi
+sudo -v || handle_error 1 "Failed to acquire administrative privileges"
 
 # ---------------------------------------------------------------------------
 # Install host dependencies
@@ -115,22 +113,17 @@ for package in "${required_packages[@]}"; do
     fi
 done
 
+# ${#missing_packages[@]} returns the number of missing package names.
 if [ "${#missing_packages[@]}" -gt 0 ]; then
     log info "Updating package indexes"
 
-    if ! sudo apt-get update; then
-        handle_error 1 "Failed to update package indexes"
-    fi
+    sudo apt-get update || handle_error 1 "Failed to update package indexes"
 
+    # ${missing_packages[*]} joins the array elements with spaces for display.
     log info "Installing packages: ${missing_packages[*]}"
 
-    if ! sudo apt-get install --yes --no-install-recommends "${missing_packages[@]}"; then
+    sudo apt-get install --yes --no-install-recommends "${missing_packages[@]}" ||
         handle_error 1 "Failed to install required packages"
-    fi
-fi
-
-if ! command -v xauth >/dev/null 2>&1; then
-    handle_error 1 "xauth is unavailable after package installation"
 fi
 
 # ---------------------------------------------------------------------------
@@ -172,26 +165,6 @@ handle_error() {
 }
 
 # ---------------------------------------------------------------------------
-# Validate required commands
-# ---------------------------------------------------------------------------
-
-if ! command -v xauth >/dev/null 2>&1; then
-    handle_error 1 "xauth is not installed"
-fi
-
-if ! command -v sed >/dev/null 2>&1; then
-    handle_error 1 "sed is not installed"
-fi
-
-if ! command -v sort >/dev/null 2>&1; then
-    handle_error 1 "sort is not installed"
-fi
-
-if ! command -v mktemp >/dev/null 2>&1; then
-    handle_error 1 "mktemp is not installed"
-fi
-
-# ---------------------------------------------------------------------------
 # Validate the graphical session environment
 # ---------------------------------------------------------------------------
 
@@ -225,16 +198,15 @@ fi
 
 xauth_file="${XDG_RUNTIME_DIR}/docker-xwayland.xauth"
 
-if ! temporary_file="$(mktemp "${XDG_RUNTIME_DIR}/docker-xwayland.xauth.XXXXXX")"; then
+temporary_file="$(mktemp "${XDG_RUNTIME_DIR}/docker-xwayland.xauth.XXXXXX")" ||
     handle_error 1 "Failed to create a temporary Xauthority file"
-fi
 
 # ---------------------------------------------------------------------------
 # Remove the temporary file if the script exits before completing
 # ---------------------------------------------------------------------------
 
 cleanup() {
-    if [ -n "${temporary_file}" ] && [ -f "${temporary_file}" ]; then
+    if [ -f "${temporary_file}" ]; then
         rm -f "${temporary_file}"
     fi
 }
@@ -254,14 +226,11 @@ trap cleanup EXIT
 # conversion, so sort -u removes duplicates.
 # ---------------------------------------------------------------------------
 
-if ! xauth_records="$(
+xauth_records="$(
     xauth -f "${XAUTHORITY}" nlist "${DISPLAY}" 2>/dev/null |
         sed -e 's/^..../ffff/' |
         sort -u
-)"; then
-    handle_error 1 \
-        "Failed to read authentication records for DISPLAY=${DISPLAY}"
-fi
+)" || handle_error 1 "Failed to read authentication records for DISPLAY=${DISPLAY}"
 
 if [ -z "${xauth_records}" ]; then
     handle_error 1 \
@@ -272,14 +241,9 @@ fi
 # Import the records into the temporary Xauthority file
 # ---------------------------------------------------------------------------
 
-if ! printf '%s\n' "${xauth_records}" |
-    xauth -f "${temporary_file}" nmerge - 2>/dev/null; then
+printf '%s\n' "${xauth_records}" |
+    xauth -f "${temporary_file}" nmerge - 2>/dev/null ||
     handle_error 1 "Failed to create the Docker Xauthority file"
-fi
-
-if [ ! -s "${temporary_file}" ]; then
-    handle_error 1 "The generated Xauthority file is empty"
-fi
 
 # ---------------------------------------------------------------------------
 # Set file permissions
@@ -289,18 +253,14 @@ fi
 # from the host user ID.
 # ---------------------------------------------------------------------------
 
-if ! chmod 0644 "${temporary_file}"; then
-    handle_error 1 \
-        "Failed to set permissions on the temporary Xauthority file"
-fi
+chmod 0644 "${temporary_file}" ||
+    handle_error 1 "Failed to set permissions on the temporary Xauthority file"
 
 # ---------------------------------------------------------------------------
 # Atomically replace the previous Docker Xauthority file
 # ---------------------------------------------------------------------------
 
-if ! mv -f "${temporary_file}" "${xauth_file}"; then
-    handle_error 1 "Failed to install ${xauth_file}"
-fi
+mv -f "${temporary_file}" "${xauth_file}" || handle_error 1 "Failed to install ${xauth_file}"
 
 trap - EXIT
 
@@ -312,9 +272,8 @@ if [ ! -s "${xauth_file}" ]; then
     handle_error 1 "The installed Xauthority file is empty: ${xauth_file}"
 fi
 
-if ! xauth_entries="$(xauth -f "${xauth_file}" nlist 2>/dev/null)"; then
+xauth_entries="$(xauth -f "${xauth_file}" nlist 2>/dev/null)" ||
     handle_error 1 "Failed to validate ${xauth_file}"
-fi
 
 if [ -z "${xauth_entries}" ]; then
     handle_error 1 "No authentication records were written to ${xauth_file}"
@@ -325,23 +284,21 @@ SCRIPT_EOF
     handle_error 1 "Failed to write '${qualified_script}'"
 fi
 
-if ! sudo chmod 0755 "${qualified_script}"; then
-    handle_error 1 "Failed to make '${qualified_script}' executable"
-fi
+sudo chmod 0755 "${qualified_script}" || handle_error 1 "Failed to make '${qualified_script}' executable"
 
 # ---------------------------------------------------------------------------
 # Install the systemd user service
 # ---------------------------------------------------------------------------
 
 service_name="set-xauth-cookies"
+# ${XDG_CONFIG_HOME:-${HOME}/.config} uses XDG_CONFIG_HOME when it is set and
+# otherwise builds the standard per-user configuration path below HOME.
 systemd_user_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 service_file="${systemd_user_dir}/${service_name}.service"
 
 log info "Installing systemd user service '${service_file}'"
 
-if ! mkdir -p "${systemd_user_dir}"; then
-    handle_error 1 "Failed to create '${systemd_user_dir}'"
-fi
+mkdir -p "${systemd_user_dir}" || handle_error 1 "Failed to create '${systemd_user_dir}'"
 
 if ! cat >"${service_file}" <<'SERVICE_EOF'; then
 [Unit]
@@ -360,9 +317,7 @@ SERVICE_EOF
     handle_error 1 "Failed to write '${service_file}'"
 fi
 
-if ! chmod 0644 "${service_file}"; then
-    handle_error 1 "Failed to set permissions on '${service_file}'"
-fi
+chmod 0644 "${service_file}" || handle_error 1 "Failed to set permissions on '${service_file}'"
 
 # ---------------------------------------------------------------------------
 # Import the current session environment and start the service
@@ -370,55 +325,24 @@ fi
 
 log info "Importing graphical session variables into the systemd user manager"
 
-if ! systemctl --user import-environment \
+systemctl --user import-environment \
     DISPLAY \
     WAYLAND_DISPLAY \
     XAUTHORITY \
-    XDG_RUNTIME_DIR; then
-    handle_error 1 "Failed to import the graphical session environment"
-fi
+    XDG_RUNTIME_DIR || handle_error 1 "Failed to import the graphical session environment"
 
-if ! systemctl --user daemon-reload; then
-    handle_error 1 "Failed to reload the systemd user manager"
-fi
+systemctl --user daemon-reload || handle_error 1 "Failed to reload the systemd user manager"
 
-if ! systemctl --user enable "${service_name}.service"; then
+systemctl --user enable "${service_name}.service" ||
     handle_error 1 "Failed to enable '${service_name}.service'"
-fi
 
-if ! systemctl --user restart "${service_name}.service"; then
+systemctl --user restart "${service_name}.service" ||
     handle_error 1 "Failed to start '${service_name}.service'"
-fi
 
-# ---------------------------------------------------------------------------
-# Validate the installation
-# ---------------------------------------------------------------------------
-
-if [ ! -x "${qualified_script}" ]; then
-    handle_error 1 "Installed helper is not executable: ${qualified_script}"
-fi
-
-if ! systemctl --user is-enabled --quiet "${service_name}.service"; then
-    handle_error 1 "The systemd user service is not enabled"
-fi
-
-if ! systemctl --user is-active --quiet "${service_name}.service"; then
-    handle_error 1 "The systemd user service did not complete successfully"
-fi
-
+# `enable` and `restart` already returned success. The helper invoked by the
+# service also validates the generated Xauthority file before it exits, so the
+# installer does not repeat those same checks here.
 xauth_file="${XDG_RUNTIME_DIR}/docker-xwayland.xauth"
-
-if [ ! -s "${xauth_file}" ]; then
-    handle_error 1 "The Docker Xauthority file was not generated: ${xauth_file}"
-fi
-
-if ! xauth_entries="$(xauth -f "${xauth_file}" nlist 2>/dev/null)"; then
-    handle_error 1 "Failed to validate the generated Xauthority file"
-fi
-
-if [ -z "${xauth_entries}" ]; then
-    handle_error 1 "The generated Xauthority file contains no entries"
-fi
 
 log info "Docker GUI support for Wayland/XWayland was installed successfully."
 log info "Service: ${service_name}.service"

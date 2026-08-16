@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # This file is sourced by .env.rc to set up ROS 2 shell integration.
 
+# These paths belong to the configured development account and therefore must
+# not be global Dockerfile ENV values. Root or an alternate --user bypasses
+# .env.rc and keeps its own home untouched.
+export ROS_HOME="${ROS_HOME:-${HOME}/.ros}"
+export ROS_LOG_DIR="${ROS_LOG_DIR:-${ROS_HOME}/logs}"
+export ROS_TEST_RESULTS_DIR="${ROS_TEST_RESULTS_DIR:-${ROS_HOME}/tests}"
+export ROS_CONFIG_HOME="${ROS_CONFIG_HOME:-${HOME}/.config/ros.org}"
+
 # --------------------------------------------------------------------------------------------------
 # source_base_ros_setup
 #

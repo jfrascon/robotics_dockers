@@ -81,9 +81,8 @@ repos:
 - repo: https://github.com/shellcheck-py/shellcheck-py
   rev: v0.11.0.1
   hooks:
-      # ShellCheck may report many warnings in legacy scripts, but it catches real bugs.
-      # Prefer justified local suppressions over disabling the hook; for example,
-      # '# shellcheck disable=SC1091' before sourcing a file that only exists at runtime.
+    # Prefer a justified local suppression over disabling ShellCheck globally;
+    # for example, SC1091 is appropriate for a file that exists only at runtime.
   - id: shellcheck
 
   # Secrets scanning

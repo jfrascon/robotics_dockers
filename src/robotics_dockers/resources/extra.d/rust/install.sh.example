@@ -1,0 +1,50 @@
+# Rename this file to install.sh to enable it.
+#
+# robotics-dockers deliberately does not select or install a Rust toolchain.
+# A base image may already provide /usr/bin/rustc and /usr/bin/cargo without
+# rustup. Installing rustup would add another rustc and cargo under
+# $HOME/.cargo/bin. The runtime environment puts that directory before system
+# paths, so the new installation would hide the Rust inherited from the image.
+# This example stops in that situation and requires the image author to choose:
+#
+#   * keep the Rust supplied by the base image and do not activate this file;
+#   * remove the base-image Rust before running this installer;
+#   * install rustup intentionally and accept that it takes precedence; or
+#   * select a different base image.
+#
+# After making that decision, edit this example to select the required toolchain,
+# default, applications, versions and features. Do not use set -e: keep failures
+# next to the operation whose error they describe.
+
+handle_error() {
+    local exit_code="${1:-1}"
+    shift || true
+    printf 'Error: %s (exit code: %s)\n' "${*:-Unknown error}" "${exit_code}" >&2
+    exit "${exit_code}"
+}
+
+if ! command -v rustup >/dev/null 2>&1; then
+    if [ -x /usr/bin/rustc ]; then
+        handle_error 1 "The base image already supplies /usr/bin/rustc without rustup. Read this file and choose which Rust installation should take precedence before enabling it"
+    fi
+
+    if [ -x /usr/bin/cargo ]; then
+        handle_error 1 "The base image already supplies /usr/bin/cargo without rustup. Read this file and choose which Rust installation should take precedence before enabling it"
+    fi
+fi
+
+# Common example after the image author has accepted rustup taking precedence.
+# Pin the installer or toolchain when reproducibility is required.
+rustup_installer="$(mktemp)" || handle_error 1 "Could not create a temporary file for the rustup installer"
+trap 'rm -f -- "${rustup_installer}"' EXIT
+
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error https://sh.rustup.rs --output "${rustup_installer}" ||
+    handle_error 1 "Could not download the rustup installer"
+bash "${rustup_installer}" --no-modify-path --profile minimal --default-toolchain stable -y ||
+    handle_error 1 "rustup installation failed"
+rm -f -- "${rustup_installer}" || handle_error 1 "Could not remove the temporary rustup installer"
+trap - EXIT
+
+"${HOME}/.cargo/bin/rustup" default stable || handle_error 1 "Could not select the stable Rust toolchain"
+# Example application installation:
+# "${HOME}/.cargo/bin/cargo" install --locked cargo-edit || handle_error 1 "Could not install cargo-edit"

@@ -1,0 +1,94 @@
+# Rename this file so it ends in .sh only when the ubuntu account and its home
+# may be deleted. Use 02-reuse-ubuntu-user.sh.example instead when the existing
+# home must be preserved.
+
+handle_error() {
+    local exit_code="${1:-1}"
+    shift || true
+    printf 'Error: %s (exit code: %s)\n' "${*:-Unknown error}" "${exit_code}" >&2
+    exit "${exit_code}"
+}
+
+source_user="ubuntu"
+source_group="ubuntu"
+source_home="/home/ubuntu"
+
+if [ "${ROBOTICS_DOCKERS_USER}" = "${source_user}" ]; then
+    handle_error 1 "The requested user is already '${source_user}'; deleting that account would also delete the requested identity"
+fi
+
+if [ "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" = "${source_group}" ]; then
+    handle_error 1 "The requested primary group is already '${source_group}'; deleting that group would also delete the requested identity"
+fi
+
+source_user_name_count="$(awk -F: -v name="${source_user}" '$1 == name { count++ } END { print count + 0 }' /etc/passwd)" ||
+    handle_error 1 "Could not inspect user '${source_user}'"
+source_group_name_count="$(awk -F: -v name="${source_group}" '$1 == name { count++ } END { print count + 0 }' /etc/group)" ||
+    handle_error 1 "Could not inspect group '${source_group}'"
+# This hook deletes local account data. Require one public local record for each
+# target instead of trusting the first result returned by an NSS lookup.
+# userdel and groupdel validate and update the protected records themselves.
+if [ "${source_user_name_count}" -ne 1 ]; then
+    handle_error 1 "User '${source_user}' must have exactly one /etc/passwd entry; found '${source_user_name_count}'"
+fi
+
+if [ "${source_group_name_count}" -ne 1 ]; then
+    handle_error 1 "Group '${source_group}' must have exactly one /etc/group entry; found '${source_group_name_count}'"
+fi
+
+source_user_entry="$(awk -F: -v name="${source_user}" '$1 == name { print }' /etc/passwd)" ||
+    handle_error 1 "Could not read user '${source_user}'"
+source_group_entry="$(awk -F: -v name="${source_group}" '$1 == name { print }' /etc/group)" ||
+    handle_error 1 "Could not read group '${source_group}'"
+IFS=: read -r _ _ source_user_id source_primary_group_id _ actual_source_home _ <<<"${source_user_entry}"
+source_group_id="$(cut -d: -f3 <<<"${source_group_entry}")" || handle_error 1 "Could not read GID of '${source_group}'"
+
+if [ "${actual_source_home}" != "${source_home}" ]; then
+    handle_error 1 "User '${source_user}' uses home '${actual_source_home}'; expected '${source_home}'"
+fi
+
+if [ -L "${source_home}" ]; then
+    handle_error 1 "Home '${source_home}' must not be a symbolic link"
+fi
+
+if [ ! -d "${source_home}" ]; then
+    handle_error 1 "Home '${source_home}' does not exist or is not a directory"
+fi
+
+if [ "${source_user_id}" != "${ROBOTICS_DOCKERS_USER_ID}" ]; then
+    handle_error 1 "User '${source_user}' has UID '${source_user_id}'; this hook only deletes it when it blocks requested UID '${ROBOTICS_DOCKERS_USER_ID}'"
+fi
+
+if [ "${source_primary_group_id}" != "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" ]; then
+    handle_error 1 "User '${source_user}' has primary GID '${source_primary_group_id}'; expected '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}'"
+fi
+
+if [ "${source_group_id}" != "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" ]; then
+    handle_error 1 "Group '${source_group}' has GID '${source_group_id}'; expected '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}'"
+fi
+
+other_primary_group_users="$(awk -F: -v user="${source_user}" -v gid="${source_group_id}" '$1 != user && $4 == gid { print $1 }' /etc/passwd)" ||
+    handle_error 1 "Could not inspect users of GID '${source_group_id}'"
+if [ -n "${other_primary_group_users}" ]; then
+    # ${other_primary_group_users//$'\n'/, } replaces every embedded newline
+    # with a comma and a space so the user names fit in one error-log line.
+    handle_error 1 "Cannot delete group '${source_group}'; it is the primary group of: ${other_primary_group_users//$'\n'/, }"
+fi
+
+mailbox="/var/mail/${source_user}"
+orphan_candidate="$(find / -xdev \
+    \( -path "${source_home}" -o -path "${source_home}/*" -o -path "${mailbox}" \) -prune -o \
+    \( -uid "${source_user_id}" -o -gid "${source_group_id}" \) -print -quit 2>/dev/null)" ||
+    handle_error 1 "Could not scan for ownership that deleting '${source_user}' would orphan"
+if [ -n "${orphan_candidate}" ]; then
+    handle_error 1 "Deleting '${source_user}' would orphan numeric ownership outside its home or mailbox; first match: '${orphan_candidate}'"
+fi
+
+userdel --remove "${source_user}" || handle_error 1 "Could not delete user '${source_user}' and home '${source_home}'"
+if getent group "${source_group}" >/dev/null 2>&1; then
+    groupdel "${source_group}" || handle_error 1 "User deletion completed, but group '${source_group}' could not be deleted"
+fi
+
+# The account commands above report failure when their requested deletion did
+# not complete. An explicit success makes the hook's final status obvious.
+exit 0

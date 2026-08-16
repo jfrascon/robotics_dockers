@@ -6,8 +6,8 @@ class InvalidDockerImageNameError(RoboticsDockersError):
     """Raised when a Docker image name does not match Docker naming rules."""
 
 
-class InvalidImageUserError(RoboticsDockersError):
-    """Raised when the requested image user is not a valid Linux user name."""
+class InvalidImageIdentityError(RoboticsDockersError):
+    """Raised when the requested development user or group identity is invalid."""
 
 
 class InvalidRosDistroError(RoboticsDockersError):
@@ -16,6 +16,10 @@ class InvalidRosDistroError(RoboticsDockersError):
 
 class InvalidRosdepPackagesDirError(RoboticsDockersError):
     """Raised when the fixed rosdep packages directory configuration is invalid."""
+
+
+class InvalidOutputDirectoryError(RoboticsDockersError):
+    """Raised when generation would overwrite an existing file or directory content."""
 
 
 class MissingResourceError(RoboticsDockersError):

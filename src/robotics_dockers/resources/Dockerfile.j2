@@ -1,268 +1,200 @@
 # syntax=docker/dockerfile:1
 
-# No default base_img is provided to ensure the build process fails if no base_img is specified.
-# The warning 'InvalidDefaultArgInFrom: Default value for ARG ${base_img} results in empty or
-# invalid base image name' can be safely ignored, as this behavior is intentional.
 FROM {{ base_img }}
 
-# The following labels adhere to the OCI Image Specification for standardized metadata.
-# Reference: https://github.com/opencontainers/image-spec/blob/main/annotations.md
+# These OCI labels describe the generated project. They are chosen when
+# robotics-dockers new creates this Dockerfile. build.py adds only the creation
+# timestamp because that value belongs to the later build operation.
 LABEL org.opencontainers.image.title={{ meta_title | tojson }} \
     org.opencontainers.image.description={{ meta_desc | tojson }} \
     org.opencontainers.image.authors={{ meta_authors | tojson }}
 
-# Build-only configuration variables.
 ARG DEBIAN_FRONTEND=noninteractive
-
-# Runtime configuration variables.
-# These are set early so they are also available to all RUN steps during the build.
-ENV IMAGE_MAIN_USER="{{ image_main_user }}" \
-    IMAGE_MAIN_USER_HOME="{{ image_main_user_home }}" \
-    ROS_DISTRO="{{ ros_distro }}" \
+ENV ROS_DISTRO="{{ ros_distro }}" \
     ROS_VERSION="2" \
     USE_HOST_NVIDIA_DRIVER="{{ use_host_nvidia_driver | lower }}"
 
 USER root
 WORKDIR /root
-
 SHELL ["/bin/bash", "-c"]
 
-# Validate the required files from the build context before running installation steps.
-# This makes the build fail early when a required file is missing, instead of failing after
-# expensive package installation work has already completed.
-RUN --mount=type=bind,source=.,target=/tmp/context <<'EOF'
-log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
-handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
-
-context_dir="/tmp/context"
-required_context_paths=(
-    .resources/bashrc_user
-    .resources/entrypoint_user.sh
-    .resources/env.rc
-    .resources/install_pkgs
-    .resources/install_base_system.sh
-{% if not use_host_nvidia_driver %}
-    .resources/install_mesa_packages.sh
-{% endif %}
-    .resources/install_gh.sh
-    .resources/install_ros.sh
-    .resources/ros.rc
-    .resources/install_extra_pkgs.sh
-    .resources/deduplicate_path
-    .resources/entrypoint_root.sh
-    .resources/skip_rosdep_keys
-    .resources/rosdep_skip_keys.txt
-    .resources/rosbuild
-    .resources/rosdep_init_update_install.sh
-    .resources/colcon_mixin_metadata.sh
-)
-
-for relative_path in "${required_context_paths[@]}"; do
-    if [ ! -f "${context_dir}/${relative_path}" ]; then
-        handle_error 1 "File not found: ${context_dir}/${relative_path}"
-    fi
-done
-
-if [ ! -d "${context_dir}/.resources/entrypoint_root.d" ]; then
-    handle_error 1 "Directory not found: ${context_dir}/.resources/entrypoint_root.d"
-fi
+# BuildKit includes files used by RUN --mount=type=bind in the cache key. A
+# changed mounted file therefore invalidates this RUN even though an ordinary RUN
+# is normally matched from its instruction text. The mounted files are temporary:
+# they are not stored in the final image or in a resource layer. robotics-dockers
+# consequently does not implement a second checksum mechanism.
+# Reference: https://docs.docker.com/build/cache/invalidation/
+RUN --mount=type=bind,source=.resources/install_pkgs,target=/tmp/install_pkgs,readonly \
+    --mount=type=bind,source=.resources/install_base_system.sh,target=/tmp/install_base_system.sh,readonly <<'EOF'
+install --owner root --group root --mode 0755 /tmp/install_pkgs /usr/local/bin/install_pkgs || {
+    echo "Error: could not install /usr/local/bin/install_pkgs" >&2
+    exit 1
+}
+bash /tmp/install_base_system.sh || {
+    echo "Error: base-system installation failed" >&2
+    exit 1
+}
 EOF
-
-# Configure apt network timeouts and retries so slow mirrors fail instead of hanging indefinitely.
-RUN tee /etc/apt/apt.conf.d/99timeouts.conf >/dev/null <<'EOF'
-Acquire::http::Timeout "30";
-Acquire::https::Timeout "30";
-Acquire::ftp::Timeout "30";
-Acquire::Retries "3";
-EOF
-
-# Avoid installing recommended and suggested packages.
-RUN tee /etc/apt/apt.conf.d/99norecommends.conf >/dev/null <<'EOF'
-APT::Install-Recommends "false";
-APT::Install-Suggests "false";
-EOF
-
-# The next RUN consumes .resources through a bind mount.
-# Bind-mounted files are visible during the RUN, but they are not copied into the image, so their
-# contents do not participate in Docker's cache key the way COPY inputs do.
-# If build.py is run with --cache, Docker could otherwise reuse this layer even after a mounted
-# resource file changed.
-# build.py prevents that by hashing the names and contents of .resources and passing the result as
-# RESOURCES_CHECKSUM.
-# Docker also computes a separate cache key for each instruction.
-# Declaring ARG RESOURCES_CHECKSUM only exposes the resource checksum to this Dockerfile;
-# the RUN below must reference it so Docker folds that value into this RUN's cache key.
-# When a resource changes, RESOURCES_CHECKSUM changes, Docker's RUN cache key changes, and this
-# layer is rebuilt while keeping .resources bind-mounted instead of copied into the image.
-ARG RESOURCES_CHECKSUM
-RUN --mount=type=bind,source=.resources,target=/tmp/context/.resources \
-    --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir <<'EOF'
-log() { echo "[$(date --utc '+%Y-%m-%dT%H:%M:%SZ')]" "$@"; }
-handle_error() { log "Error: ${2:-Unknown error}" >&2; exit "${1:-1}"; }
-
-if [ -z "${RESOURCES_CHECKSUM}" ]; then
-    handle_error 1 "RESOURCES_CHECKSUM build argument is required"
-fi
-
-log "Resources checksum: ${RESOURCES_CHECKSUM}"
-
-install --owner root --group root --mode 755 /tmp/context/.resources/install_pkgs /usr/local/bin/install_pkgs || \
-    handle_error 1 "Failed to install 'install_pkgs'"
-
-install --owner root --group root --mode 755 /tmp/context/.resources/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys || \
-    handle_error 1 "Failed to install 'skip_rosdep_keys'"
-
-bash /tmp/context/.resources/install_base_system.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
-    handle_error 1 "Failed to run 'install_base_system.sh'"
-
-# Verify IMAGE_MAIN_USER exists in the system.
-image_main_user_entry="$(getent passwd "${IMAGE_MAIN_USER}")"
-[ -z "${image_main_user_entry}" ] && handle_error 1 "User '${IMAGE_MAIN_USER}' not found"
 
 {% if not use_host_nvidia_driver %}
-bash /tmp/context/.resources/install_mesa_packages.sh || \
-    handle_error 1 "Failed to run 'install_mesa_packages.sh'"
-
+RUN --mount=type=bind,source=.resources/install_mesa_packages.sh,target=/tmp/install_mesa_packages.sh,readonly \
+    bash /tmp/install_mesa_packages.sh || { echo "Error: Mesa package installation failed" >&2; exit 1; }
 {% endif %}
 
-bash /tmp/context/.resources/install_ros.sh "${ROS_DISTRO}" || \
-    handle_error 1 "Failed to run 'install_ros.sh'"
+RUN --mount=type=bind,source=.resources/install_gh.sh,target=/tmp/install_gh.sh,readonly \
+    bash /tmp/install_gh.sh || { echo "Error: GitHub CLI installation failed" >&2; exit 1; }
 
-# No ROS_DISTRO found at this point, exit with an error.
-# If more than one ROS_DISTRO is found, exit with an error.
-# If the found ROS_DISTRO does not match the expected ROS_DISTRO, exit with an error.
-ros_distro="$(dpkg --list | sed -nE 's/^ii\s+ros-([a-z]+)-ros-core.*$/\1/p' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-num_distros="$(echo "${ros_distro}" | wc -w)"
-
-[ "${num_distros}" -eq 0 ] && handle_error 1 "No ROS distribution found"
-[ "${num_distros}" -gt 1 ] && handle_error 1 "More than one ROS_DISTRO found: ${ros_distro}"
-[ "${ROS_DISTRO}" != "${ros_distro}" ] && handle_error 1 "Found ROS_DISTRO '${ros_distro}', expected ROS_DISTRO '${ROS_DISTRO}'"
-
-bash /usr/local/bin/skip_rosdep_keys /tmp/context/.resources/rosdep_skip_keys.txt || \
-    handle_error 1 "Failed to run 'skip_rosdep_keys'"
-
-bash /tmp/context/.resources/install_extra_pkgs.sh "${IMAGE_MAIN_USER}" "${IMAGE_MAIN_USER_HOME}" || \
-    handle_error 1 "Failed to run 'install_extra_pkgs.sh'"
-
-bash /tmp/context/.resources/rosdep_init_update_install.sh \
-    "${ROS_DISTRO}" "${IMAGE_MAIN_USER}" --pkgs-dir /tmp/pkgs_dir || \
-    handle_error 1 "Failed to run 'rosdep_init_update_install.sh'"
-
-bash /tmp/context/.resources/colcon_mixin_metadata.sh "${IMAGE_MAIN_USER}" || \
-    handle_error 1 "Failed to run 'colcon_mixin_metadata.sh'"
-
-bash /tmp/context/.resources/install_gh.sh || \
-    handle_error 1 "Failed to run 'install_gh.sh'"
-
-log "Installing file '/usr/local/bin/entrypoint.sh'"
-install --owner root --group root --mode 755 /tmp/context/.resources/entrypoint_root.sh /usr/local/bin/entrypoint.sh || \
-    handle_error 1 "Failed to install '/usr/local/bin/entrypoint.sh'"
-
-log "Installing root hook scripts to /etc/entrypoint.d/"
-mkdir --parent /etc/entrypoint.d || \
-    handle_error 1 "Failed to create '/etc/entrypoint.d'"
-while IFS= read -r -d '' hook_path; do
-    hook_name="$(basename "${hook_path}")"
-    hook_mode="755"
-
-    if [[ ${hook_path} == *.txt ]]; then
-        hook_mode="644"
-    fi
-
-    log "Installing root hook '/etc/entrypoint.d/${hook_name}'"
-    install --owner root --group root --mode "${hook_mode}" "${hook_path}" "/etc/entrypoint.d/${hook_name}" || \
-        handle_error 1 "Failed to install root hook '/etc/entrypoint.d/${hook_name}'"
-done < <(find /tmp/context/.resources/entrypoint_root.d -maxdepth 1 -type f \( -name '*.sh' -o -name '*.txt' \) -print0 | sort -z)
-
-log "Installing file '/usr/local/bin/rosbuild'"
-install --owner root --group root --mode 755 /tmp/context/.resources/rosbuild /usr/local/bin/rosbuild || \
-    handle_error 1 "Failed to install '/usr/local/bin/rosbuild'"
-
-# If the '${bashrc_user_line}' does not exist in the .bashrc file of the user, added it.
-bashrc_user_line='[ -f "${HOME}/.bashrc_user" ] && . "${HOME}/.bashrc_user"'
-
-# -q, --quiet: Suppress normal output.
-# -x, --line-regexp: Select only those matches that exactly match the whole line.
-# -F, --fixed-strings: Interpret the pattern as fixed strings, not regular expressions.
-if ! grep -qxF "${bashrc_user_line}" "${IMAGE_MAIN_USER_HOME}/.bashrc"; then
-    log "Adding line '${bashrc_user_line}' to file the '${IMAGE_MAIN_USER_HOME}/.bashrc'"
-    {
-        echo '# --------------------------------------'
-        echo "${bashrc_user_line}"
-    } >> "${IMAGE_MAIN_USER_HOME}/.bashrc" || \
-        handle_error 1 "Failed to update '${IMAGE_MAIN_USER_HOME}/.bashrc'"
-else
-    log "Line '${bashrc_user_line}' already exists in file '${IMAGE_MAIN_USER_HOME}/.bashrc'"
-fi
-
-# An environment script is installed in the home directory of the '${IMAGE_MAIN_USER}'.
-image_main_user_pri_group_id="$(echo "${image_main_user_entry}" | cut -d: -f4)"
-image_main_user_pri_group="$(getent group "${image_main_user_pri_group_id}" | cut -d: -f1)"
-[ -z "${image_main_user_pri_group}" ] && handle_error 1 "Primary group '${image_main_user_pri_group_id}' for user '${IMAGE_MAIN_USER}' not found"
-
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bashrc_user "${IMAGE_MAIN_USER_HOME}/.bashrc_user" || \
-    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.bashrc_user'"
-
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.entrypoint.sh'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/entrypoint_user.sh "${IMAGE_MAIN_USER_HOME}/.entrypoint.sh" || \
-    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.entrypoint.sh'"
-
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.env.rc'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/env.rc "${IMAGE_MAIN_USER_HOME}/.env.rc" || \
-    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.env.rc'"
-
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.ros.rc'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/ros.rc "${IMAGE_MAIN_USER_HOME}/.ros.rc" || \
-    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.ros.rc'"
-
-log "Installing file '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
-install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 775 /tmp/context/.resources/deduplicate_path "${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path" || \
-    handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.local/bin/deduplicate_path'"
-
-# Install .bash_aliases_user if present in context (the user may have removed it between create_docker_files.py and build.py).
-if [ -e /tmp/context/.resources/bash_aliases_user ]; then
-    log "Installing file '${IMAGE_MAIN_USER_HOME}/.bash_aliases_user'"
-    install --owner "${IMAGE_MAIN_USER}" --group "${image_main_user_pri_group}" --mode 664 /tmp/context/.resources/bash_aliases_user "${IMAGE_MAIN_USER_HOME}/.bash_aliases_user" || \
-        handle_error 1 "Failed to install '${IMAGE_MAIN_USER_HOME}/.bash_aliases_user'"
-fi
-
-# Every file and folder in image_main_user_home must belong to the IMAGE_MAIN_USER.
-image_main_user_id="$(echo "${image_main_user_entry}" | cut -d: -f3)"
-[ -z "${image_main_user_id}" ] && handle_error 1 "UID for user '${IMAGE_MAIN_USER}' not found"
-actual_user_home="$(echo "${image_main_user_entry}" | cut -d: -f6)"
-
-# Guard the recursive chown against future changes in the generator or user-creation script.
-[ -d "${IMAGE_MAIN_USER_HOME}" ] || handle_error 1 "Home directory '${IMAGE_MAIN_USER_HOME}' not found"
-[ "${IMAGE_MAIN_USER_HOME}" = "${actual_user_home}" ] || \
-    handle_error 1 "IMAGE_MAIN_USER_HOME '${IMAGE_MAIN_USER_HOME}' does not match passwd home '${actual_user_home}'"
-
-log "Setting ownership of path '${IMAGE_MAIN_USER_HOME}' to user '${IMAGE_MAIN_USER}' (UID '${image_main_user_id}') and primary group '${image_main_user_pri_group}' (GID '${image_main_user_pri_group_id}')"
-chown --recursive "${IMAGE_MAIN_USER}":"${image_main_user_pri_group}" "${IMAGE_MAIN_USER_HOME}" || \
-    handle_error 1 "Failed to set ownership of '${IMAGE_MAIN_USER_HOME}'"
-
-log "Removing installation residues from apt cache"
-apt-get autoremove --purge -y >/dev/null || \
-    handle_error 1 "Failed to autoremove apt packages"
-apt-get clean >/dev/null || \
-    handle_error 1 "Failed to clean apt cache"
-rm -rf /var/lib/apt/lists/* &>/dev/null || \
-    handle_error 1 "Failed to remove apt lists"
+RUN --mount=type=bind,source=.resources/install_ros.sh,target=/tmp/install_ros.sh,readonly \
+    --mount=type=bind,source=.resources/skip_rosdep_keys,target=/tmp/skip_rosdep_keys,readonly \
+    --mount=type=bind,source=.resources/rosdep_skip_keys.txt,target=/tmp/rosdep_skip_keys.txt,readonly <<'EOF'
+install --owner root --group root --mode 0755 /tmp/skip_rosdep_keys /usr/local/bin/skip_rosdep_keys || {
+    echo "Error: could not install skip_rosdep_keys" >&2
+    exit 1
+}
+bash /tmp/install_ros.sh "${ROS_DISTRO}" || {
+    echo "Error: ROS installation failed" >&2
+    exit 1
+}
+skip_rosdep_keys /tmp/rosdep_skip_keys.txt || {
+    echo "Error: rosdep skip-key configuration failed" >&2
+    exit 1
+}
 EOF
 
-# Runtime environment variables.
-# Set after all installation steps to avoid interfering with package configuration
-# (e.g. tzdata reads TZ during installation if set beforehand).
-# Items available for RCUTILS_CONSOLE_OUTPUT_FORMAT:
-# [{severity} {time}] [{name}]: {message} ({function_name}() at {file_name}:{line_number})
+# Apt customizations are intentionally later than the expensive common ROS
+# installation. Editing packages.txt or a project repository rebuilds this phase
+# and the user-specific phases, but retains the common system layers.
+RUN --mount=type=bind,source=.resources/install_extra_apt.sh,target=/tmp/install_extra_apt.sh,readonly \
+    --mount=type=bind,source=.resources/extra.d/apt,target=/tmp/extra_d_apt,readonly <<'EOF'
+bash /tmp/install_extra_apt.sh /tmp/extra_d_apt || {
+    echo "Error: extra apt installation failed" >&2
+    exit 1
+}
+EOF
+
+# The development identity is placed after common package layers so changing a
+# name or numeric identifier can reuse those layers.
+ENV ROBOTICS_DOCKERS_USER={{ user | tojson }} \
+    ROBOTICS_DOCKERS_USER_ID="{{ user_id }}" \
+    ROBOTICS_DOCKERS_USER_HOME={{ user_home | tojson }} \
+    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP={{ primary_group | tojson }} \
+    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID="{{ primary_group_id }}"
+
+LABEL io.github.jfrascon.robotics-dockers.user.name={{ user | tojson }} \
+    io.github.jfrascon.robotics-dockers.user.id="{{ user_id }}" \
+    io.github.jfrascon.robotics-dockers.user.home={{ user_home | tojson }} \
+    io.github.jfrascon.robotics-dockers.user.primary-group.name={{ primary_group | tojson }} \
+    io.github.jfrascon.robotics-dockers.user.primary-group.id="{{ primary_group_id }}"
+
+# Preparation hooks are an explicit escape hatch for known base-image accounts.
+# They run as root before any project identity is created. Only regular .sh files
+# are active; .example files remain documentation until deliberately renamed.
+RUN --mount=type=bind,source=.resources/user_preparation.d,target=/tmp/user_preparation.d,readonly \
+    --mount=type=bind,source=.resources/configure_image_user.sh,target=/tmp/configure_image_user.sh,readonly <<'EOF'
+if find /tmp/user_preparation.d -type l -print -quit | grep -q .; then
+    echo "Error: symbolic links are not allowed in user_preparation.d" >&2
+    exit 1
+fi
+while IFS= read -r -d '' preparation_hook; do
+    # ${preparation_hook##*/} removes the directory prefix and leaves the hook
+    # filename for the human-readable build log.
+    echo "Running user preparation hook '${preparation_hook##*/}'"
+    bash "${preparation_hook}" || {
+        echo "Error: user preparation hook '${preparation_hook}' failed" >&2
+        exit 1
+    }
+done < <(find /tmp/user_preparation.d -maxdepth 1 -type f -name '*.sh' -print0 | LC_ALL=C sort -z)
+
+bash /tmp/configure_image_user.sh \
+    "${ROBOTICS_DOCKERS_USER}" \
+    "${ROBOTICS_DOCKERS_USER_ID}" \
+    "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP}" \
+    "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+    "${ROBOTICS_DOCKERS_USER_HOME}" || {
+        echo "Error: development identity configuration failed" >&2
+        exit 1
+    }
+EOF
+
+# rosdep and colcon create data that belongs in the configured home, so these
+# phases run only after that account has been validated.
+RUN --mount=type=bind,source=.resources/rosdep_init_update_install.sh,target=/tmp/rosdep_init_update_install.sh,readonly \
+    --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir,readonly <<'EOF'
+bash /tmp/rosdep_init_update_install.sh \
+    "${ROS_DISTRO}" "${ROBOTICS_DOCKERS_USER}" --pkgs-dir /tmp/pkgs_dir || {
+    echo "Error: rosdep setup or dependency installation failed" >&2
+    exit 1
+}
+EOF
+
+RUN --mount=type=bind,source=.resources/colcon_mixin_metadata.sh,target=/tmp/colcon_mixin_metadata.sh,readonly <<'EOF'
+bash /tmp/colcon_mixin_metadata.sh "${ROBOTICS_DOCKERS_USER}" || {
+    echo "Error: colcon mixin or metadata setup failed" >&2
+    exit 1
+}
+EOF
+
+# Install runtime files individually with their final ownership. No recursive
+# ownership repair is needed, so large pre-existing homes are not scanned.
+RUN --mount=type=bind,source=.resources/bashrc_user,target=/tmp/bashrc_user,readonly \
+    --mount=type=bind,source=.resources/bash_aliases_user,target=/tmp/bash_aliases_user,readonly \
+    --mount=type=bind,source=.resources/entrypoint_user.sh,target=/tmp/entrypoint_user.sh,readonly \
+    --mount=type=bind,source=.resources/env.rc,target=/tmp/env.rc,readonly \
+    --mount=type=bind,source=.resources/ros.rc,target=/tmp/ros.rc,readonly \
+    --mount=type=bind,source=.resources/rosbuild,target=/tmp/rosbuild,readonly \
+    --mount=type=bind,source=.resources/extra.d/env.d,target=/tmp/environment-hooks,readonly <<'EOF'
+if [ ! -s "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc" ]; then
+    install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+        --mode 0644 /etc/skel/.bashrc "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc" || exit 1
+fi
+install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+    --mode 0644 /tmp/bashrc_user "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc_user" || exit 1
+bashrc_loader_marker='# Load the robotics-dockers interactive Bash configuration.'
+if ! grep -qxF "${bashrc_loader_marker}" "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc"; then
+    printf '\n%s\nif [ -f "${HOME}/.bashrc_user" ]; then\n    . "${HOME}/.bashrc_user"\nfi\n' \
+        "${bashrc_loader_marker}" >>"${ROBOTICS_DOCKERS_USER_HOME}/.bashrc" || exit 1
+fi
+install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+    --mode 0644 /tmp/bash_aliases_user "${ROBOTICS_DOCKERS_USER_HOME}/.bash_aliases_user" || exit 1
+install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+    --mode 0644 /tmp/env.rc "${ROBOTICS_DOCKERS_USER_HOME}/.env.rc" || exit 1
+install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+    --mode 0644 /tmp/ros.rc "${ROBOTICS_DOCKERS_USER_HOME}/.ros.rc" || exit 1
+install --owner root --group root --mode 0755 /tmp/entrypoint_user.sh /usr/local/bin/entrypoint.sh || exit 1
+install --owner root --group root --mode 0755 /tmp/rosbuild /usr/local/bin/rosbuild || exit 1
+
+if find /tmp/environment-hooks -type l -print -quit | grep -q .; then
+    echo "Error: symbolic links are not allowed in extra.d/env.d" >&2
+    exit 1
+fi
+while IFS= read -r -d '' environment_hook; do
+    # ${environment_hook##*/} removes the directory prefix and leaves the hook
+    # filename used at the destination.
+    install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
+        --mode 0644 "${environment_hook}" "${ROBOTICS_DOCKERS_USER_HOME}/.env.d/${environment_hook##*/}" || exit 1
+done < <(find /tmp/environment-hooks -maxdepth 1 -type f -name '*.rc' -print0 | LC_ALL=C sort -z)
+EOF
+
+# User extras run as the real account, not through sudo -u. The project sudo
+# rule is installed only after this phase succeeds.
+USER "${ROBOTICS_DOCKERS_USER}"
+RUN --mount=type=bind,source=.resources/install_user_extras.sh,target=/tmp/install_user_extras.sh,readonly \
+    --mount=type=bind,source=.resources/extra.d/python,target=/tmp/extra/python,readonly \
+    --mount=type=bind,source=.resources/extra.d/rust,target=/tmp/extra/rust,readonly \
+    HOME="${ROBOTICS_DOCKERS_USER_HOME}" \
+    PATH="${ROBOTICS_DOCKERS_USER_HOME}/.local/bin:${PATH}" \
+    bash /tmp/install_user_extras.sh /tmp/extra
+
+USER root
+RUN --mount=type=bind,source=.resources/configure_sudo.sh,target=/tmp/configure_sudo.sh,readonly \
+    bash /tmp/configure_sudo.sh "${ROBOTICS_DOCKERS_USER}"
+
+# General runtime defaults are safe for root and alternate users. Values that
+# contain the development home are set by .ros.rc only in the matching-user path.
 ENV TZ="Etc/UTC" \
     LC_ALL="en_US.UTF-8" \
     LANG="en_US.UTF-8" \
     LANGUAGE="en_US:en" \
-    ROS_HOME="${IMAGE_MAIN_USER_HOME}/.ros" \
-    ROS_LOG_DIR="${IMAGE_MAIN_USER_HOME}/.ros/logs" \
-    ROS_TEST_RESULTS_DIR="${IMAGE_MAIN_USER_HOME}/.ros/tests" \
-    ROS_CONFIG_HOME="${IMAGE_MAIN_USER_HOME}/.config/ros.org" \
     RTI_NC_LICENSE_ACCEPTED="no" \
     RCUTILS_COLORIZED_OUTPUT="1" \
     RCUTILS_LOGGING_USE_STDOUT="1" \
@@ -272,10 +204,7 @@ ENV TZ="Etc/UTC" \
     {{ ros_discovery_env_name }}={{ ros_discovery_env_value | tojson }} \
     RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
 
-# The root entrypoint needs UID 0 to adapt IMAGE_MAIN_USER and then drops
-# privileges before starting the development process. Keep the working directory
-# in IMAGE_MAIN_USER's home so the process started after setpriv begins there.
-USER root
-WORKDIR "${IMAGE_MAIN_USER_HOME}"
+USER "${ROBOTICS_DOCKERS_USER}"
+WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]

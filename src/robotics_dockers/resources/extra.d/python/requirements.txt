@@ -1,0 +1,10 @@
+# These development tools are defaults, not mandatory robotics-dockers internals.
+# Remove tools you do not need, add project tools, and pin versions when the
+# project requires reproducible Python tooling.
+argcomplete
+ruff
+cmake-format
+pre-commit
+jinja2
+python-rapidjson
+uv

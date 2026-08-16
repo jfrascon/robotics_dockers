@@ -10,8 +10,17 @@
 # - Requires --mixin and --cmake-args to be space-separated. Disallows --mixin=... and --cmake-args=....
 # - Prints the final colcon build command before executing.
 
+# ${BASH_SOURCE:-${0}} uses the current Bash source filename and falls back to
+# $0 when BASH_SOURCE is unavailable.
 script="${BASH_SOURCE:-${0}}"
 script_name="$(basename "${script}")"
+
+handle_error() {
+    local exit_code="${1:-1}"
+    shift || true
+    printf 'ERROR: %s\n' "${*:-Unknown error}" >&2
+    exit "${exit_code}"
+}
 
 # Initialize.
 args=()
@@ -24,8 +33,11 @@ add_default_cxx_flags=true
 mixin_args=()
 show_help=false
 
-# Compute default value for --parallel-workers.
-default_parallel_workers=$((($(nproc) + 1) / 2))
+# The rounded-up half leaves CPU capacity for the desktop and other development
+# processes. nproc itself reports failure if it cannot determine this value.
+available_cpu_count="$(nproc)" || handle_error 1 "Could not determine the number of available CPU cores"
+
+default_parallel_workers=$(((available_cpu_count + 1) / 2))
 
 # Default C++ warning flags to inject via CMAKE_CXX_FLAGS.
 # These are compatible with both GCC and Clang, and provide a good balance between safety and verbosity.
@@ -41,6 +53,8 @@ default_cxx_flags="-Wall -Wextra -Wpedantic -Wnon-virtual-dtor -Woverloaded-virt
 i=0
 while [ "${i}" -lt "$#" ]; do
     arg_index=$((i + 1))
+    # ${!arg_index} reads the positional argument whose number is stored in
+    # arg_index. For example, arg_index=2 expands the value of "$2".
     arg="${!arg_index}"
 
     case "${arg}" in
@@ -76,6 +90,8 @@ while [ "${i}" -lt "$#" ]; do
         # Also detect if user manually sets CMAKE_CXX_FLAGS to avoid injecting defaults.
         while [ "${j}" -lt "$#" ]; do
             next_arg_index=$((j + 1))
+            # ${!next_arg_index} reads the positional argument whose number is
+            # stored in next_arg_index.
             next_arg="${!next_arg_index}"
             if [[ ${next_arg} == --* ]]; then
                 break
@@ -86,7 +102,9 @@ while [ "${i}" -lt "$#" ]; do
             args+=("${next_arg}")
             j=$((j + 1))
         done
-        i=$((j))
+        # The outer loop increments i. Leave it immediately before the first
+        # unconsumed option so that option is processed on the next iteration.
+        i=$((j - 1))
         ;;
     --mixin=*)
         # Disallow --mixin=value syntax to prevent confusion.
@@ -103,20 +121,27 @@ while [ "${i}" -lt "$#" ]; do
         # Also decide whether to skip default mixins based on user input.
         while [ "${j}" -lt "$#" ]; do
             next_arg_index=$((j + 1))
+            # ${!next_arg_index} reads the positional argument whose number is
+            # stored in next_arg_index.
             next_arg="${!next_arg_index}"
             if [[ ${next_arg} == --* ]]; then
                 break
             fi
             mixin_args+=("${next_arg}")
             args+=("${next_arg}")
-            if [ "${next_arg}" = "debug" ] || [ "${next_arg}" = "rel-with-deb-info" ]; then
+            case "${next_arg}" in
+            debug | rel-with-deb-info)
                 add_default_release_mixin=false
-            elif [ "${next_arg}" = "compile-commands" ]; then
+                ;;
+            compile-commands)
                 add_default_compile_commands=false
-            fi
+                ;;
+            esac
             j=$((j + 1))
         done
-        i=$((j))
+        # The outer loop increments i. Leave it immediately before the first
+        # unconsumed option so that option is processed on the next iteration.
+        i=$((j - 1))
         ;;
     --help | -h)
         show_help=true
@@ -130,8 +155,8 @@ while [ "${i}" -lt "$#" ]; do
 done
 
 # Show modified help output.
-if ${show_help}; then
-    echo "The following configuration is set by default, unless the user explicitely set other:"
+if [ "${show_help}" = true ]; then
+    echo "The following defaults apply unless the user explicitly selects alternatives:"
     echo "  --merge-install              Use --no-merge-install to disable"
     echo "  --symlink-install            Use --no-symlink-install to disable"
     echo "  --parallel-workers           ${default_parallel_workers}"
@@ -140,23 +165,42 @@ if ${show_help}; then
     echo "  -DCMAKE_CXX_FLAGS            ${default_cxx_flags}"
     echo
 
-    colcon build --help |
-        sed -E 's/usage: colcon build/usage: '"${script_name}"' /' |
-        sed -E 's/\[--merge-install\]/[--no-merge-install]/g' |
-        sed -E 's/\[--symlink-install\]/[--no-symlink-install]/g' |
-        sed -E 's/(.*)--merge-install[[:space:]]*Merge all.*$/\1--no-merge-install    Do not merge all install prefixes; keep them isolated per package/' |
-        sed -E 's/(.*)--symlink-install[[:space:]]*Use.*$/\1--no-symlink-install  Do not use symlinks; copy files during installation/' |
-        sed -E "s/(.*no limit[[:space:]]*)\(default:.*\)/\1(default: ${default_parallel_workers})/"
+    colcon_help="$(colcon build --help)" || handle_error 1 "Could not read colcon build help"
+    sed -E \
+        -e 's/usage: colcon build/usage: '"${script_name}"' /' \
+        -e 's/\[--merge-install\]/[--no-merge-install]/g' \
+        -e 's/\[--symlink-install\]/[--no-symlink-install]/g' \
+        -e 's/(.*)--merge-install[[:space:]]*Merge all.*$/\1--no-merge-install    Do not merge all install prefixes; keep them isolated per package/' \
+        -e 's/(.*)--symlink-install[[:space:]]*Use.*$/\1--no-symlink-install  Do not use symlinks; copy files during installation/' \
+        -e "s/(.*no limit[[:space:]]*)\(default:.*\)/\1(default: ${default_parallel_workers})/" \
+        <<<"${colcon_help}" || handle_error 1 "Could not format colcon build help"
     exit 0
 fi
 
 # Add default flags unless explicitly disabled.
-${add_merge_install} && args+=("--merge-install")
-${add_symlink_install} && args+=("--symlink-install")
-${add_default_parallel_workers} && args+=("--parallel-workers" "${default_parallel_workers}")
-${add_default_release_mixin} && args+=("--mixin" "release")
-${add_default_compile_commands} && args+=("--mixin" "compile-commands")
-${add_default_cxx_flags} && args+=("--cmake-args" "-DCMAKE_CXX_FLAGS=${default_cxx_flags}")
+if [ "${add_merge_install}" = true ]; then
+    args+=("--merge-install")
+fi
+
+if [ "${add_symlink_install}" = true ]; then
+    args+=("--symlink-install")
+fi
+
+if [ "${add_default_parallel_workers}" = true ]; then
+    args+=("--parallel-workers" "${default_parallel_workers}")
+fi
+
+if [ "${add_default_release_mixin}" = true ]; then
+    args+=("--mixin" "release")
+fi
+
+if [ "${add_default_compile_commands}" = true ]; then
+    args+=("--mixin" "compile-commands")
+fi
+
+if [ "${add_default_cxx_flags}" = true ]; then
+    args+=("--cmake-args" "-DCMAKE_CXX_FLAGS=${default_cxx_flags}")
+fi
 
 # Trace command before execution.
 echo "+ colcon build $(printf '%q ' "${args[@]}")"

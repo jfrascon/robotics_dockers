@@ -13,13 +13,20 @@ authors = [{ name = "jfr" }]
 dependencies = ["jinja2"]
 
 [project.optional-dependencies]
-dev = ["build", "pytest"]
+dev = ["build", "pre-commit", "pytest", "ruff"]
 
 [project.scripts]
 robotics-dockers = "robotics_dockers.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/robotics_dockers"]
+
+[tool.pytest.ini_options]
+markers = [
+  "docker: functional test that requires the Docker daemon",
+  "ros_image: integration test using a public ros:<distro>-ros-core image",
+  "full_build: expensive end-to-end build of a complete generated image",
+]
 
 # ==============================================================================
 # Ruff configuration (formatter + linter)

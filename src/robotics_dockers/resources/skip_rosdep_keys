@@ -13,7 +13,7 @@ handle_error() {
     local exit_code="${1:-1}"
     local error_message="${2:-Unknown error}"
 
-    log error "${error_message} (exit code: ${exit_code})"
+    log error "${error_message} (exit code: ${exit_code})" >&2
     exit "${exit_code}"
 }
 
@@ -35,20 +35,29 @@ EOF
 trim() {
     local value="${1}"
 
-    # Remove leading whitespace
+    # The inner %% expansion isolates all leading whitespace; the outer #
+    # expansion removes that prefix from the value.
     value="${value#"${value%%[![:space:]]*}"}"
-    # Remove trailing whitespace
+    # The inner ## expansion isolates all trailing whitespace; the outer %
+    # expansion removes that suffix from the value.
     value="${value%"${value##*[![:space:]]}"}"
 
     # Return the trimmed value
     printf '%s' "${value}"
 }
 
+# ${BASH_SOURCE:-${0}} uses the current Bash source filename and falls back to
+# $0 when BASH_SOURCE is unavailable.
 script="${BASH_SOURCE:-${0}}"
 script_name="$(basename "${script}")"
 
 # This script writes under /etc/ros, so it must run as root.
-[ "$(id --user)" -ne 0 ] && handle_error 1 "root user must be active to run the script '${script_name}'"
+executing_user_id="$(id --user 2>/dev/null)" ||
+    handle_error 1 "Could not determine which UID is executing '${script_name}'"
+
+if [ "${executing_user_id}" -ne 0 ]; then
+    handle_error 1 "Script '${script_name}' must run as UID 0; found UID '${executing_user_id}'"
+fi
 
 # Process options; --help shows usage and exits.
 for arg in "$@"; do
@@ -60,26 +69,39 @@ for arg in "$@"; do
     esac
 done
 
-[ "$#" -ne 1 ] && handle_error 1 "Expected exactly one rosdep keys file argument"
+if [ "$#" -ne 1 ]; then
+    handle_error 1 "Expected exactly one rosdep keys file argument"
+fi
 
 rosdep_keys_input_file="${1}"
-[ ! -r "${rosdep_keys_input_file}" ] && handle_error 1 "Cannot read rosdep keys file '${rosdep_keys_input_file}'"
+if [ ! -r "${rosdep_keys_input_file}" ]; then
+    handle_error 1 "Cannot read rosdep keys file '${rosdep_keys_input_file}'"
+fi
 
 # Normalize the keys listed in the input file.
 normalized_keys=()
+# The second condition processes a final non-empty line even when the file does
+# not end with a newline. This is one read-loop rule, not two error conditions.
 while IFS= read -r raw_key || [ -n "${raw_key}" ]; do
     trimmed_key="$(trim "${raw_key}")"
-    [ -z "${trimmed_key}" ] && continue
-    [[ ${trimmed_key} == \#* ]] && continue
+    if [ -z "${trimmed_key}" ]; then
+        continue
+    fi
+
+    if [[ ${trimmed_key} == \#* ]]; then
+        continue
+    fi
+
     normalized_keys+=("${trimmed_key}: {ubuntu: []}")
 done <"${rosdep_keys_input_file}"
 
 # If there are no normalized keys, log a message and exit with a zero status, since there is
 # nothing to do.
-[ "${#normalized_keys[@]}" -eq 0 ] && {
+# ${#normalized_keys[@]} returns the number of normalized rosdep keys.
+if [ "${#normalized_keys[@]}" -eq 0 ]; then
     log info "No rosdep keys to register from '${rosdep_keys_input_file}'. Nothing to do."
     exit 0
-}
+fi
 
 # Keys to ignore must be written in a yaml file, and then that file (absolute path) must be
 # inserted in a file under the directory `/etc/ros/rosdep/sources.list.d`.
@@ -103,8 +125,11 @@ etc_rosdep_sources_dir="/etc/ros/rosdep/sources.list.d"
 rosdep_ignored_keys_index_file="${etc_rosdep_sources_dir}/00-rosdep-ignored-keys-index.list"
 
 # Be sure paths and files exist before trying to write to them.
-mkdir --verbose --parent "${etc_rosdep_sources_dir}"
-touch "${rosdep_ignored_keys_file}"
+mkdir --verbose --parent "${etc_rosdep_sources_dir}" ||
+    handle_error 1 "Could not create rosdep sources directory '${etc_rosdep_sources_dir}'"
+
+touch "${rosdep_ignored_keys_file}" ||
+    handle_error 1 "Could not create ignored-keys file '${rosdep_ignored_keys_file}'"
 
 # For each normalized key, check if it already exists in the yaml file. If it does not exist, add it
 # to the yaml file. This allows the script to be idempotent, since running it multiple times with
@@ -114,7 +139,8 @@ for normalized_key in "${normalized_keys[@]}"; do
         "${normalized_key}" "${rosdep_ignored_keys_file}"; then
         log info "Rosdep key '${normalized_key}' already registered in '${rosdep_ignored_keys_file}'"
     else
-        printf '%s\n' "${normalized_key}" >>"${rosdep_ignored_keys_file}"
+        printf '%s\n' "${normalized_key}" >>"${rosdep_ignored_keys_file}" ||
+            handle_error 1 "Could not add rosdep key '${normalized_key}' to '${rosdep_ignored_keys_file}'"
         log info "Added rosdep key '${normalized_key}' to '${rosdep_ignored_keys_file}'"
     fi
 done
@@ -124,14 +150,17 @@ done
 # This allows the script to be idempotent, since running it multiple times with the same keys will
 # not result in duplicate entries in the index file.
 if [ -s "${rosdep_ignored_keys_file}" ]; then
-    touch "${rosdep_ignored_keys_index_file}"
+    touch "${rosdep_ignored_keys_index_file}" ||
+        handle_error 1 "Could not create rosdep index '${rosdep_ignored_keys_index_file}'"
+
     index_line="yaml file://${rosdep_ignored_keys_file}"
 
     if grep --quiet --line-regexp --fixed-strings \
         "${index_line}" "${rosdep_ignored_keys_index_file}"; then
         log info "Index entry '${index_line}' already exists in '${rosdep_ignored_keys_index_file}'"
     else
-        printf '%s\n' "${index_line}" >>"${rosdep_ignored_keys_index_file}"
+        printf '%s\n' "${index_line}" >>"${rosdep_ignored_keys_index_file}" ||
+            handle_error 1 "Could not add '${index_line}' to '${rosdep_ignored_keys_index_file}'"
         log info "Added index entry '${index_line}' to '${rosdep_ignored_keys_index_file}'"
     fi
 fi

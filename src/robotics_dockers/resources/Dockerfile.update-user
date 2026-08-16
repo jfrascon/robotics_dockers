@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# check=skip=InvalidDefaultArgInFrom
+
+# Create a local variant of an existing robotics-dockers image with different
+# numeric identifiers. This is an optional adaptation path for developers
+# who cannot afford to rebuild the original image. It is not used by the normal
+# generated-image build or runtime path.
+#
+# Example:
+#   docker build --file Dockerfile.update-user \
+#     --build-arg BASE_IMAGE=my-image:latest \
+#     --build-arg NEW_UID=1000 --build-arg NEW_GID=1000 \
+#     --tag my-image:uid-1000 .
+
+# BASE_IMAGE deliberately has no default: adapting an unintended image is more
+# dangerous than requiring this argument. The parser check above suppresses only
+# the warning that normally recommends a valid default for FROM.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG NEW_UID
+ARG NEW_GID
+
+USER root
+SHELL ["/bin/bash", "-c"]
+
+RUN --mount=type=bind,source=.resources/update_image_user.sh,target=/tmp/update_image_user.sh,readonly \
+    bash /tmp/update_image_user.sh \
+        "${NEW_UID}" "${NEW_GID}" {{ user | tojson }} {{ user_home | tojson }}
+
+# Preserve the account names and home from the source image while publishing the
+# new numeric contract for Compose files, derived images and runtime validation.
+ENV ROBOTICS_DOCKERS_USER_ID="${NEW_UID}" \
+    ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID="${NEW_GID}"
+
+LABEL io.github.jfrascon.robotics-dockers.user.id="${NEW_UID}" \
+    io.github.jfrascon.robotics-dockers.user.primary-group.id="${NEW_GID}"
+
+# These textual values were fixed when robotics-dockers generated this adapter.
+# The helper above requires the source image metadata to contain the same values
+# before changing IDs, so USER and WORKDIR cannot silently target another account.
+USER {{ user | tojson }}
+WORKDIR {{ user_home | tojson }}

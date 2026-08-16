@@ -1,0 +1,9 @@
+# One apt package specification per line.
+#
+# Examples:
+#   ffmpeg
+#   clang-18
+#   package-name=1.2.3-1
+#
+# Add third-party repositories with standard deb822 .sources files under
+# sources.d/ and place their .asc or .gpg keyrings under keyrings.d/.
