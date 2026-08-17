@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from robotics_dockers import DockerContextConfig, generate_docker_context
 from robotics_dockers.config import ROS_DISTROS, resolve_config
@@ -30,7 +31,7 @@ def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> No
         'Dockerfile',
         'Dockerfile_update_user',
         'build.py',
-        'compose_files/docker-compose.yaml',
+        'compose_files/.gitkeep',
         'robotics_dockers_user_env.py',
         'env_files/.gitkeep',
         '.resources/configure_image_user.sh',
@@ -46,6 +47,8 @@ def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> No
     for relative_path in expected:
         assert result.context_dir.joinpath(relative_path).exists(), relative_path
 
+    assert not result.context_dir.joinpath('compose_files/docker-compose.yaml').exists()
+
     assert not result.context_dir.joinpath('.resources/entrypoint_root.sh').exists()
     assert not result.context_dir.joinpath('.resources/entrypoint_root.d').exists()
     generated_text = '\n'.join(
@@ -57,11 +60,25 @@ def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> No
 
 def test_generated_identity_sources_are_general_and_metadata_is_concrete(tmp_path: Path) -> None:
     result = generate_docker_context(
-        _config(tmp_path, meta_title='Custom image', meta_desc='Custom description', meta_authors='Custom Author')
+        _config(
+            tmp_path,
+            add_compose_file=True,
+            meta_title='Custom image',
+            meta_desc='Custom description',
+            meta_authors='Custom Author',
+        )
     )
     dockerfile = result.context_dir.joinpath('Dockerfile').read_text()
     adapter = result.context_dir.joinpath('Dockerfile_update_user').read_text()
     compose = result.context_dir.joinpath('compose_files/docker-compose.yaml').read_text()
+    compose_config = yaml.safe_load(compose)
+    service = next(iter(compose_config['services'].values()))
+    x11_socket_mount = next(
+        mount for mount in service['volumes'] if isinstance(mount, dict) and mount.get('source') == '/tmp/.X11-unix'
+    )
+    usb_bus_mount = next(
+        mount for mount in service['volumes'] if isinstance(mount, dict) and mount.get('source') == '/dev/bus/usb'
+    )
 
     assert 'ARG ROBOTICS_DOCKERS_USER_ID' in dockerfile
     assert 'ROBOTICS_DOCKERS_USER_ID="${ROBOTICS_DOCKERS_USER_ID}"' in dockerfile
@@ -78,12 +95,43 @@ def test_generated_identity_sources_are_general_and_metadata_is_concrete(tmp_pat
     assert '${IMAGE_USER_PRIMARY_GROUP_ID:?' in compose
     assert 'working_dir:' not in compose
     assert 'CONTAINER_ROS_WORKSPACE: "/workspace"' in compose
-    assert '# - "${HOST_WORKSPACE:' in compose
+    assert '#   source: "${HOST_WORKSPACE:' in compose
     assert '#- ~/datasets:/datasets' in compose
     assert '# cap_add:' in compose
     assert '#   - NET_ADMIN' in compose
+    assert '# security_opt:' in compose
+    assert '#   - seccomp=unconfined' in compose
+    assert '#   - apparmor=unconfined' in compose
+    assert '# ulimits:' in compose
+    assert '#   rtprio:' in compose
+    assert '#   memlock:' in compose
+    assert service['stop_grace_period'] == '30s'
+    for capability in ('SYS_ADMIN', 'SYS_PTRACE', 'PERFMON', 'SYS_NICE', 'IPC_LOCK', 'NET_ADMIN'):
+        assert f'#   - {capability}' in compose
+    for default_capability in ('SYS_CHROOT', 'SETUID', 'SETGID', 'NET_RAW'):
+        assert f'#   - {default_capability}' not in compose
+    assert '#     source: "${SSH_AUTH_SOCK:' in compose
+    assert '#     target: /ssh-agent' in compose
+    assert '#     read_only: true' in compose
     assert '${HOST_UID' not in compose
     assert '${HOST_UPGID' not in compose
+    assert x11_socket_mount == {
+        'type': 'bind',
+        'source': '/tmp/.X11-unix',
+        'target': '/tmp/.X11-unix',
+        'read_only': True,
+        'bind': {'create_host_path': False},
+    }
+    assert usb_bus_mount == {
+        'type': 'bind',
+        'source': '/dev/bus/usb',
+        'target': '/dev/bus/usb',
+        'bind': {'create_host_path': False},
+    }
+    assert service['devices'] == ['/dev/dri:/dev/dri:rw']
+    assert service['device_cgroup_rules'] == ['c 189:* rw']
+    assert '#   source: /dev/input' in compose
+    assert '# - "c 13:* r"' in compose
     for concrete_identity in ('"developer"', '"/home/developer"', '"1000"', '"1001"'):
         assert concrete_identity not in dockerfile
         assert concrete_identity not in adapter
@@ -191,12 +239,17 @@ if sys.argv[1:3] == ['image', 'inspect']:
     assert not tmp_path.joinpath('.env').exists()
 
 
-def test_generated_compose_can_enable_workspace_mount(tmp_path: Path) -> None:
-    result = generate_docker_context(_config(tmp_path, enable_workspace_mount=True))
+def test_optional_standalone_compose_keeps_workspace_mount_commented(tmp_path: Path) -> None:
+    result = generate_docker_context(_config(tmp_path, add_compose_file=True))
     compose = result.context_dir.joinpath('compose_files/docker-compose.yaml').read_text()
+    compose_config = yaml.safe_load(compose)
+    service = next(iter(compose_config['services'].values()))
 
-    assert '\n      - "${HOST_WORKSPACE:' in compose
-    assert '# - "${HOST_WORKSPACE:' not in compose
+    assert not any(
+        isinstance(mount, dict) and mount.get('source', '').startswith('${HOST_WORKSPACE:')
+        for mount in service['volumes']
+    )
+    assert '#   source: "${HOST_WORKSPACE:' in compose
 
 
 def test_generated_build_script_propagates_launch_failure(tmp_path: Path) -> None:

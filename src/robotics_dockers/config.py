@@ -27,7 +27,7 @@ class DockerContextConfig:
     output_dir: Path | str | None = None
     base_img: str | None = None
     use_host_nvidia_driver: bool = False
-    enable_workspace_mount: bool = False
+    add_compose_file: bool = False
     meta_title: str = DEFAULT_META_TITLE
     meta_desc: str = DEFAULT_META_DESC
     meta_authors: str | None = None
@@ -51,10 +51,7 @@ class ResolvedDockerContextConfig:
     output_dir: Path | None
     base_img: str
     use_host_nvidia_driver: bool
-    # Standalone image contexts do not necessarily belong to a source project.
-    # Keep their workspace bind mount disabled unless the caller explicitly
-    # knows that HOST_WORKSPACE is part of the generated runtime contract.
-    enable_workspace_mount: bool
+    add_compose_file: bool
     meta_title: str
     meta_desc: str
     meta_authors: str
@@ -105,7 +102,7 @@ def resolve_config(config: DockerContextConfig) -> ResolvedDockerContextConfig:
         output_dir=output_dir,
         base_img=base_img,
         use_host_nvidia_driver=config.use_host_nvidia_driver,
-        enable_workspace_mount=config.enable_workspace_mount,
+        add_compose_file=config.add_compose_file,
         meta_title=config.meta_title,
         meta_desc=config.meta_desc,
         meta_authors=meta_authors,

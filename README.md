@@ -29,7 +29,7 @@ Requirements:
 
 - Python 3.10 or newer;
 - Docker Engine with BuildKit;
-- Docker Compose v2 for the generated Compose file.
+- Docker Compose v2 when using the optional generated Compose file.
 
 Keep Python environments outside the source tree. This makes the separation between the cloned repository and the installed Python runtime explicit.
 
@@ -93,6 +93,7 @@ Useful generation options:
 | --- | --- |
 | `--base-img IMAGE` | Select another base image instead of the Ubuntu version associated with the ROS distro. |
 | `--nvidia` | Use the host NVIDIA driver instead of installing Mesa in the image. |
+| `--add-compose-file` | Add the optional standalone `compose_files/docker-compose.yaml` example. |
 | `--meta-title TEXT` | Set the OCI image title in the generated Dockerfile. |
 | `--meta-desc TEXT` | Set the OCI image description. |
 | `--meta-authors TEXT` | Set the OCI image authors. |
@@ -106,7 +107,7 @@ docker-jazzy/
 ├── Dockerfile_update_user
 ├── build.py
 ├── compose_files/
-│   └── docker-compose.yaml
+│   └── .gitkeep
 ├── robotics_dockers_user_env.py
 ├── env_files/
 │   └── .gitkeep
@@ -117,6 +118,8 @@ docker-jazzy/
     ├── entrypoint_user.sh
     └── ...
 ```
+
+The normal output is a Docker image build context, so it does not assume that the image belongs to a source project. Pass `--add-compose-file` when you also want the standalone Compose example. The empty `compose_files/` directory is kept as an explicit place for a Compose file owned by a consuming project or written by the user.
 
 ## Build
 
@@ -327,7 +330,7 @@ A custom mount below the home is allowed, but it can hide `.env.rc`, `.ros.rc`, 
 
 ## Compose, graphics and devices
 
-The generated Compose service omits `user:` and inherits the image's selected user. The reusable Compose source refers to the generic `IMAGE_USER_ID` and `IMAGE_USER_PRIMARY_GROUP_ID` variables; neither value is rendered into the file.
+The optional standalone Compose service omits `user:` and inherits the image's selected user. The reusable Compose source refers to the generic `IMAGE_USER_ID` and `IMAGE_USER_PRIMARY_GROUP_ID` variables; neither value is rendered into the file.
 
 Compose must interpolate those values before the container exists, so it cannot read them from the environment stored inside the image. Use `robotics_dockers_user_env.py --output` to copy the complete image identity into a chosen Compose environment file after building or pulling an image.
 
@@ -335,13 +338,51 @@ Compose creates `/run/user/<uid>` as a `tmpfs` owned by the development UID/GID 
 
 The template retains:
 
-- a `/workspace` mount that is commented in standalone contexts and can be enabled by API clients that own a project workspace;
+- a `/workspace` mount shown as a commented example for users who add a workspace to the standalone Compose file;
 - an optional `/datasets` mount;
-- `/dev/dri`, USB and input device mappings;
+- a static `/dev/dri` device mapping and hotplug-aware raw USB access;
+- an input-device mount that remains commented because it may expose host keyboards;
 - `group_add` using `RENDER_GID` for `/dev/dri/renderD*`;
 - NVIDIA Compose device reservations when generation used `--nvidia`;
 - host networking for ROS 2 discovery;
-- a commented `NET_ADMIN` capability for projects that truly modify network devices.
+- commented security-profile overrides and individual Linux capabilities for projects that have identified a specific
+  restriction that must be relaxed;
+- commented `rtprio` and `memlock` limits to accompany `SYS_NICE` and `IPC_LOCK` when required;
+- a 30-second stop grace period before Docker sends `SIGKILL`.
+
+### Device access and hotplug
+
+Device access has three independent layers:
+
+1. A device node must be visible inside the container. `devices` exposes nodes that exist when Docker creates the
+   container. A bind-mounted device directory also shows nodes that the host adds or removes later.
+2. The container's device cgroup must permit the node's type, major number, minor number and required operations.
+3. The container user must pass the normal Unix owner, group and mode checks on the node.
+
+The Compose template uses `devices` for `/dev/dri`. Docker scans that directory when it creates the container and adds
+the DRM nodes found on that host. One machine may provide `card0` and `renderD128`, while another provides `card1` and
+`renderD129`; the Compose file does not need to contain either set of names or numeric IDs. GPUs and DRM nodes normally
+remain present for the container's lifetime, so exact startup-time device mappings are preferable to a wildcard cgroup
+rule. `RENDER_GID` supplies the separate Unix group permission required by the selected `renderD*` node. Access to a
+`cardX` node may additionally require the GID that owns the host's `video` group.
+
+An individual serial node such as `/dev/ttyACM0` is also shown as a commented `devices` example. This is the simple
+choice when the device exists before startup and keeps that path. Mounting all of host `/dev` merely to support a
+possible rename to `ttyACM1` would expose too much of the host device namespace. Projects that must recover from such a
+rename need an explicit hotplug strategy, such as host `udev` integration, or must recreate the container.
+
+Raw USB is intentionally different. `/dev/bus/usb` is a narrow directory whose nodes commonly appear, disappear and
+receive a new bus or device number while the container is running. The template bind-mounts that directory and grants
+`c 189:* rw`, so newly created raw USB nodes are both visible and permitted. The rule omits `m` because the host creates
+the nodes; the container does not need `mknod` permission.
+
+`/dev/input` follows the same hotplug pattern, but its bind mount and `c 13:* r` rule remain commented. Enabling them can
+allow the container to read host keyboards, mice and other input devices. Use `rw` instead of `r` only when the project
+needs output operations such as force feedback.
+
+Neither `devices` nor `device_cgroup_rules` bypasses Unix file permissions. Add the matching supplementary group or a
+deliberate host `udev` rule when a node is owned by a group such as `render`, `video`, `dialout` or `input`. NVIDIA GPU
+reservations remain separate because NVIDIA Container Toolkit manages the NVIDIA device set.
 
 Find the render-device GID with:
 
@@ -349,9 +390,7 @@ Find the render-device GID with:
 stat -c %g /dev/dri/renderD128
 ```
 
-The `compose_files/` directory is the place for alternative Compose definitions. The generator installs
-`compose_files/docker-compose.yaml`; a project may add other files for machines or deployment modes that need different
-services, mounts or devices.
+The `compose_files/` directory is the place for user- or project-owned Compose definitions. It is empty by default. When `robotics-dockers new` is invoked with `--add-compose-file`, the generator installs the standalone example as `compose_files/docker-compose.yaml`. That example deliberately leaves its workspace bind mount commented because `robotics_dockers` creates an image and does not know whether a source project exists or where it is stored.
 
 The empty `env_files/` directory is a deliberate place for configurations belonging to the machines that run the image. For example, a project can commit `env_files/production.env` and `env_files/robot-a.env` when those values are shared deployment configuration. Do not store secrets in these files.
 
@@ -375,7 +414,9 @@ RENDER_GID=992
 
 The helper does not create these host values. Compose uses `${VARIABLE:?explanation}` for every required value, so `docker compose up` stops with a direct message when one is absent or empty. `TERM` is optional and retains its default.
 
-Select the environment file explicitly when starting Compose. Docker Compose does not automatically search arbitrary files below `env_files/`:
+After generating the optional Compose example, select the environment file
+explicitly when starting it. Docker Compose does not automatically search
+arbitrary files below `env_files/`:
 
 ```bash
 cd docker-jazzy
@@ -387,7 +428,7 @@ docker compose \
 
 When `--nvidia` is selected, the runtime entrypoint verifies both a usable `libcuda.so.1` and an NVIDIA device. The host needs the NVIDIA driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). `group_add` for a render node and NVIDIA device reservations solve different access paths and can coexist.
 
-[`scripts/install-docker-gui-support.sh`](scripts/install-docker-gui-support.sh) configures an XWayland Xauthority file on a Wayland host. When `XDG_RUNTIME_DIR` is not exported, it uses the standard `/run/user/<host-uid>` path. That directory must already exist because the systemd login session, not this script, owns its creation and lifecycle. The generated Compose file mounts the resulting file read-only instead of exposing the host `.ssh` or complete home.
+[`scripts/install-docker-gui-support.sh`](scripts/install-docker-gui-support.sh) configures an XWayland Xauthority file on a Wayland host. When `XDG_RUNTIME_DIR` is not exported, it uses the standard `/run/user/<host-uid>` path. That directory must already exist because the systemd login session, not this script, owns its creation and lifecycle. The optional standalone Compose file mounts the resulting file read-only instead of exposing the host `.ssh` or complete home.
 
 ## VS Code Dev Containers
 

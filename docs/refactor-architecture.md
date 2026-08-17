@@ -201,7 +201,11 @@ Account files and a recursive ownership traversal are not an atomic operation. T
 
 ## Compose boundaries
 
-Compose contains no literal developer UID/GID and does not override `user:`. It requires `ROBOTICS_DOCKERS_USER_ID` and `ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID` during interpolation. Compose definitions belong below `compose_files/`, while runtime-machine configuration belongs in a deliberately selected file below `env_files/`, not in the image build command. The standalone generator comments the `/workspace` bind mount by default because it does not know a project path; callers such as `ros_project_generator` can enable it explicitly. `/workspace` and `/datasets` keep editable host mounts away from the installed home environment.
+The normal generated output is an image build context. Passing `--add-compose-file` also adds a standalone example below `compose_files/`; otherwise that directory remains empty for the user or a consuming project. The optional Compose file contains no literal developer UID/GID and does not override `user:`. It requires the generic `IMAGE_USER_ID` and `IMAGE_USER_PRIMARY_GROUP_ID` values during interpolation.
+
+Runtime-machine configuration belongs in a deliberately selected file below `env_files/`, not in the image build command. The standalone Compose example keeps its `/workspace` bind mount commented because `robotics_dockers` does not know a project source path. A project generator that consumes this Python API owns its own project-specific Compose definition. For example, `ros_project_generator` renders the workspace mount from its own template instead of asking `robotics_dockers` to change the standalone example.
+
+`/workspace` and `/datasets` are conventional container paths, not a requirement of the identity design. They keep large or replaceable project data separate from the development user's installed tools and configuration.
 
 `robotics_dockers_user_env.py` is the single image-inspection implementation used by `build.py` and available as a command. Without `--output` it prints the five validated identity variables. With `--output`, it atomically creates or updates all five variables and preserves unrelated settings, comments and permissions. The user supplies machine-specific paths and chooses the environment file explicitly with `docker compose --env-file`.
 

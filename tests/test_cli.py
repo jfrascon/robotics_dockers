@@ -17,12 +17,13 @@ def test_python_module_cli_creates_context(tmp_path: Path) -> None:
     assert 'Created ROS 2 Docker files.' in completed.stdout
     assert f'Output directory: {tmp_path.resolve()}' in completed.stdout
     assert 'Host NVIDIA:       disabled' in completed.stdout
-    assert 'compose_files/docker-compose.yaml' in completed.stdout
+    assert 'compose_files/' in completed.stdout
     assert tmp_path.joinpath('Dockerfile').is_file()
     assert tmp_path.joinpath('Dockerfile_update_user').is_file()
     assert not tmp_path.joinpath('Dockerfile.update-user').exists()
     assert tmp_path.joinpath('build.py').is_file()
-    assert tmp_path.joinpath('compose_files/docker-compose.yaml').is_file()
+    assert tmp_path.joinpath('compose_files/.gitkeep').is_file()
+    assert not tmp_path.joinpath('compose_files/docker-compose.yaml').exists()
     assert not tmp_path.joinpath('docker-compose.yaml').exists()
     assert tmp_path.joinpath('robotics_dockers_user_env.py').is_file()
     assert tmp_path.joinpath('env_files/.gitkeep').is_file()
@@ -38,6 +39,16 @@ def test_python_module_cli_accepts_nvidia(tmp_path: Path) -> None:
     assert 'Host NVIDIA:       enabled' in completed.stdout
 
 
+def test_python_module_cli_can_add_standalone_compose_file(tmp_path: Path) -> None:
+    command = _new_command(tmp_path)
+    command[command.index('--output') : command.index('--output')] = ['--add-compose-file']
+    completed = subprocess.run(command, check=False, text=True, capture_output=True)
+
+    assert completed.returncode == 0, completed.stderr
+    assert '    - docker-compose.yaml' in completed.stdout
+    assert tmp_path.joinpath('compose_files/docker-compose.yaml').is_file()
+
+
 def test_python_module_cli_help_contains_only_shared_required_values() -> None:
     completed = subprocess.run(
         [sys.executable, '-m', 'robotics_dockers', 'new', '--help'], check=False, text=True, capture_output=True
@@ -48,6 +59,7 @@ def test_python_module_cli_help_contains_only_shared_required_values() -> None:
     assert 'user-name' not in completed.stdout
     assert '--group' not in completed.stdout
     assert '--workspace-mount' not in completed.stdout
+    assert '--add-compose-file' in completed.stdout
 
 
 @pytest.mark.parametrize('provided,missing_name', [(['jazzy'], 'img-id'), ([], 'ros-distro')])

@@ -61,20 +61,6 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             },
             True,
         ],
-        'compose_files/docker-compose.yaml': [
-            'docker-compose.yaml.j2',
-            {
-                'service': f'{config.img_id.replace(":", "_").replace("/", "_")}_cont',
-                'img_id': config.img_id,
-                # Workspaces are deliberately outside the home so mounting them
-                # cannot hide the environment files installed in the home.
-                'img_workspace_dir': '/workspace',
-                'img_datasets_dir': '/datasets',
-                'use_host_nvidia_driver': config.use_host_nvidia_driver,
-                'enable_workspace_mount': config.enable_workspace_mount,
-            },
-            False,
-        ],
         '.resources/bash_aliases_user': ['bash_aliases_user', True],
         '.resources/configure_image_user.sh': ['configure_image_user.sh', True],
         '.resources/configure_sudo.sh': ['configure_sudo.sh', True],
@@ -105,10 +91,28 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
             False,
         ],
         '.resources/update_image_user.sh': ['update_image_user.sh', True],
+        'compose_files/.gitkeep': [None, False],
         'env_files/.gitkeep': [None, False],
         'robotics_dockers_user_env.py': ['robotics_dockers_user_env.py', True],
         'Dockerfile_update_user': ['Dockerfile_update_user', False],
     }
+
+    # The Docker build context is useful without Compose. Keep the directory as
+    # an obvious extension point, but add the standalone runtime example only
+    # when the caller asks for it explicitly. Project generators should own
+    # their project-specific Compose files instead.
+    if config.add_compose_file:
+        items_to_install['compose_files/docker-compose.yaml'] = [
+            'docker-compose.yaml.j2',
+            {
+                'service': f'{config.img_id.replace(":", "_").replace("/", "_")}_cont',
+                'img_id': config.img_id,
+                'img_workspace_dir': '/workspace',
+                'img_datasets_dir': '/datasets',
+                'use_host_nvidia_driver': config.use_host_nvidia_driver,
+            },
+            False,
+        ]
 
     items_to_install['.resources/colcon_mixin_metadata.sh'] = ['colcon_mixin_metadata.sh', True]
     items_to_install['.resources/skip_rosdep_keys'] = ['skip_rosdep_keys', True]

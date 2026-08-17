@@ -53,6 +53,9 @@ def _create_parser() -> argparse.ArgumentParser:
         '--nvidia', action='store_true', dest='use_host_nvidia_driver', help="Use host's NVIDIA driver"
     )
     new_parser.add_argument(
+        '--add-compose-file', action='store_true', help='Add the optional standalone Compose file under compose_files/'
+    )
+    new_parser.add_argument(
         '--meta-title', type=str, default=DEFAULT_META_TITLE, help='Title to include in the image metadata'
     )
     new_parser.add_argument(
@@ -78,6 +81,7 @@ def _run_create(args: argparse.Namespace) -> int:
         output_dir=args.output,
         base_img=args.base_img,
         use_host_nvidia_driver=args.use_host_nvidia_driver,
+        add_compose_file=args.add_compose_file,
         meta_title=args.meta_title,
         meta_desc=args.meta_desc,
         meta_authors=args.meta_authors,
@@ -108,7 +112,9 @@ def _print_create_summary(result: DockerContextResult) -> None:
     print('Generated:')
     print('  - Dockerfile')
     print('  - build.py')
-    print('  - compose_files/docker-compose.yaml')
+    print('  - compose_files/')
+    if config.add_compose_file:
+        print('    - docker-compose.yaml')
     print('  - robotics_dockers_user_env.py')
     print('  - env_files/')
     print(f'  - .resources/ ({len(resource_files)} support files)')
