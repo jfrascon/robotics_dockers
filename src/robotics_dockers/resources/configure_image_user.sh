@@ -286,7 +286,13 @@ fi
 
 if [ "${user_name_count}" -eq 0 ]; then
     log info "Creating user '${development_user}' with UID '${development_user_id}' and primary GID '${development_primary_group_id}'"
-    useradd --uid "${development_user_id}" --gid "${development_primary_group_id}" --create-home \
+    # Ubuntu's /etc/login.defs normally sets UID_MAX to 60000. Corporate
+    # directory services commonly assign much larger IDs. The script has
+    # already validated the requested UID against Linux's supported range, so
+    # override UID_MAX only for this useradd call. This prevents a misleading
+    # warning without changing the image-wide account policy.
+    useradd --key "UID_MAX=${maximum_user_group_id}" \
+        --uid "${development_user_id}" --gid "${development_primary_group_id}" --create-home \
         --home-dir "${development_user_home}" --shell "${development_user_shell}" "${development_user}" ||
         handle_error 1 "Could not create user '${development_user}'"
 else

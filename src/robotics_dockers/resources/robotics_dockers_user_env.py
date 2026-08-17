@@ -18,18 +18,32 @@ MIN_USER_GROUP_ID = 1000
 MAX_USER_GROUP_ID = 4294967294
 LOCAL_ACCOUNT_NAME_PATTERN = re.compile(r'[a-z_][a-z0-9_-]{0,31}')
 
-USER_VARIABLE = 'ROBOTICS_DOCKERS_USER'
-USER_ID_VARIABLE = 'ROBOTICS_DOCKERS_USER_ID'
-USER_HOME_VARIABLE = 'ROBOTICS_DOCKERS_USER_HOME'
-PRIMARY_GROUP_VARIABLE = 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP'
-PRIMARY_GROUP_ID_VARIABLE = 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID'
+IMAGE_METADATA_USER_VARIABLE = 'ROBOTICS_DOCKERS_USER'
+IMAGE_METADATA_USER_ID_VARIABLE = 'ROBOTICS_DOCKERS_USER_ID'
+IMAGE_METADATA_USER_HOME_VARIABLE = 'ROBOTICS_DOCKERS_USER_HOME'
+IMAGE_METADATA_PRIMARY_GROUP_VARIABLE = 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP'
+IMAGE_METADATA_PRIMARY_GROUP_ID_VARIABLE = 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID'
 
-IDENTITY_VARIABLES = (
-    USER_VARIABLE,
-    USER_ID_VARIABLE,
-    USER_HOME_VARIABLE,
-    PRIMARY_GROUP_VARIABLE,
-    PRIMARY_GROUP_ID_VARIABLE,
+IMAGE_METADATA_VARIABLES = (
+    IMAGE_METADATA_USER_VARIABLE,
+    IMAGE_METADATA_USER_ID_VARIABLE,
+    IMAGE_METADATA_USER_HOME_VARIABLE,
+    IMAGE_METADATA_PRIMARY_GROUP_VARIABLE,
+    IMAGE_METADATA_PRIMARY_GROUP_ID_VARIABLE,
+)
+
+COMPOSE_USER_VARIABLE = 'IMAGE_USER'
+COMPOSE_USER_ID_VARIABLE = 'IMAGE_USER_ID'
+COMPOSE_USER_HOME_VARIABLE = 'IMAGE_USER_HOME'
+COMPOSE_PRIMARY_GROUP_VARIABLE = 'IMAGE_USER_PRIMARY_GROUP'
+COMPOSE_PRIMARY_GROUP_ID_VARIABLE = 'IMAGE_USER_PRIMARY_GROUP_ID'
+
+COMPOSE_IDENTITY_VARIABLES = (
+    COMPOSE_USER_VARIABLE,
+    COMPOSE_USER_ID_VARIABLE,
+    COMPOSE_USER_HOME_VARIABLE,
+    COMPOSE_PRIMARY_GROUP_VARIABLE,
+    COMPOSE_PRIMARY_GROUP_ID_VARIABLE,
 )
 
 
@@ -47,13 +61,14 @@ class ImageUserInfo:
     primary_group: str
     primary_group_id: int
 
-    def as_environment(self) -> dict[str, str]:
+    def as_compose_environment(self) -> dict[str, str]:
+        """Return generic variables that a Compose file can use with any image."""
         return {
-            USER_VARIABLE: self.user,
-            USER_ID_VARIABLE: str(self.user_id),
-            USER_HOME_VARIABLE: self.user_home,
-            PRIMARY_GROUP_VARIABLE: self.primary_group,
-            PRIMARY_GROUP_ID_VARIABLE: str(self.primary_group_id),
+            COMPOSE_USER_VARIABLE: self.user,
+            COMPOSE_USER_ID_VARIABLE: str(self.user_id),
+            COMPOSE_USER_HOME_VARIABLE: self.user_home,
+            COMPOSE_PRIMARY_GROUP_VARIABLE: self.primary_group,
+            COMPOSE_PRIMARY_GROUP_ID_VARIABLE: str(self.primary_group_id),
         }
 
 
@@ -114,18 +129,20 @@ def inspect_image_user(image: str) -> ImageUserInfo:
             name, value = entry.split('=', 1)
             environment[name] = value
 
-    missing_variables = [name for name in IDENTITY_VARIABLES if not environment.get(name)]
+    missing_variables = [name for name in IMAGE_METADATA_VARIABLES if not environment.get(name)]
     if missing_variables:
         raise UserEnvError(
             f'Docker image {image!r} does not provide the required identity variable(s): '
             f'{", ".join(missing_variables)}. Build it with the current robotics-dockers contract.'
         )
 
-    user = validate_account_name(environment[USER_VARIABLE], 'image user name')
-    primary_group = validate_account_name(environment[PRIMARY_GROUP_VARIABLE], 'image primary group name')
-    user_id = validate_numeric_id(environment[USER_ID_VARIABLE], 'image UID')
-    primary_group_id = validate_numeric_id(environment[PRIMARY_GROUP_ID_VARIABLE], 'image primary GID')
-    user_home = environment[USER_HOME_VARIABLE]
+    user = validate_account_name(environment[IMAGE_METADATA_USER_VARIABLE], 'image user name')
+    primary_group = validate_account_name(
+        environment[IMAGE_METADATA_PRIMARY_GROUP_VARIABLE], 'image primary group name'
+    )
+    user_id = validate_numeric_id(environment[IMAGE_METADATA_USER_ID_VARIABLE], 'image UID')
+    primary_group_id = validate_numeric_id(environment[IMAGE_METADATA_PRIMARY_GROUP_ID_VARIABLE], 'image primary GID')
+    user_home = environment[IMAGE_METADATA_USER_HOME_VARIABLE]
     expected_home = f'/home/{user}'
     if user_home != expected_home:
         raise UserEnvError(
@@ -145,11 +162,11 @@ def update_user_env(output_path: Path, user_info: ImageUserInfo) -> None:
 
     output_mode = output_path.stat().st_mode & 0o777 if output_path.exists() else 0o664
     existing_lines = output_path.read_text().splitlines(keepends=True) if output_path.exists() else []
-    managed_values = user_info.as_environment()
+    managed_values = user_info.as_compose_environment()
     # Compose .env files use NAME=VALUE assignments. A colon belongs to YAML,
     # not to this file format, so it must not be treated as a managed entry.
-    assignment_pattern = re.compile(rf'^\s*({"|".join(re.escape(name) for name in IDENTITY_VARIABLES)})\s*=')
-    occurrences = dict.fromkeys(IDENTITY_VARIABLES, 0)
+    assignment_pattern = re.compile(rf'^\s*({"|".join(re.escape(name) for name in COMPOSE_IDENTITY_VARIABLES)})\s*=')
+    occurrences = dict.fromkeys(COMPOSE_IDENTITY_VARIABLES, 0)
     updated_lines: list[str] = []
 
     for line in existing_lines:
@@ -167,7 +184,7 @@ def update_user_env(output_path: Path, user_info: ImageUserInfo) -> None:
             )
         updated_lines.append(f'{name}={managed_values[name]}\n')
 
-    missing_names = [name for name in IDENTITY_VARIABLES if occurrences[name] == 0]
+    missing_names = [name for name in COMPOSE_IDENTITY_VARIABLES if occurrences[name] == 0]
     if missing_names:
         managed_block = [
             '# Image identity read from the selected robotics-dockers image.\n',
@@ -214,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
             update_user_env(args.output, user_info)
             print(f"Updated '{args.output}' from Docker image '{args.image}'.")
         else:
-            for name, value in user_info.as_environment().items():
+            for name, value in user_info.as_compose_environment().items():
                 print(f'{name}={value}')
     except UserEnvError as error:
         print(f'Error: {error}', file=sys.stderr)

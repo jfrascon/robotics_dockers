@@ -173,7 +173,7 @@ python3 robotics_dockers_user_env.py \
     --output env_files/production.env
 ```
 
-The helper writes all five `ROBOTICS_DOCKERS_USER*` values obtained from the image. In an existing file, it replaces those variables in place and preserves host paths, display settings, comments, custom variables and file permissions. It does not invent values that depend on the target machine.
+The helper reads the five `ROBOTICS_DOCKERS_USER*` metadata values from the image and writes them as the generic `IMAGE_USER*` Compose variables. The generic names describe the user selected from the image without tying the Compose file to robotics-dockers. In an existing file, the helper replaces those variables in place and preserves host paths, display settings, comments, custom variables and file permissions. It does not invent values that depend on the target machine.
 
 During the build, `configure_image_user.sh` accepts these states:
 
@@ -327,7 +327,7 @@ A custom mount below the home is allowed, but it can hide `.env.rc`, `.ros.rc`, 
 
 ## Compose, graphics and devices
 
-The generated Compose service omits `user:` and inherits the image's development user. The reusable Compose source refers to `ROBOTICS_DOCKERS_USER_ID` and `ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID`; neither value is rendered into the file.
+The generated Compose service omits `user:` and inherits the image's selected user. The reusable Compose source refers to the generic `IMAGE_USER_ID` and `IMAGE_USER_PRIMARY_GROUP_ID` variables; neither value is rendered into the file.
 
 Compose must interpolate those values before the container exists, so it cannot read them from the environment stored inside the image. Use `robotics_dockers_user_env.py --output` to copy the complete image identity into a chosen Compose environment file after building or pulling an image.
 
@@ -367,7 +367,7 @@ Then add the host-specific values required by the enabled Compose features:
 
 ```dotenv
 # Required only when the generated workspace mount is enabled:
-HOST_ROS_WORKSPACE=/absolute/path/to/the/workspace
+HOST_WORKSPACE=/absolute/path/to/the/workspace
 HOST_XAUTHORITY_FILE=/run/user/1000/docker-xwayland.xauth
 DISPLAY=:1
 RENDER_GID=992

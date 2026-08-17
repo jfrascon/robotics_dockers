@@ -80,12 +80,12 @@ def test_update_user_env_creates_versionable_identity_file(tmp_path: Path) -> No
     update_user_env(env_file, _user_info())
 
     contents = env_file.read_text()
-    assert 'ROBOTICS_DOCKERS_USER=developer' in contents
-    assert 'ROBOTICS_DOCKERS_USER_ID=1000' in contents
-    assert 'ROBOTICS_DOCKERS_USER_HOME=/home/developer' in contents
-    assert 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP=robotics' in contents
-    assert 'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID=1001' in contents
-    assert 'HOST_ROS_WORKSPACE' not in contents
+    assert 'IMAGE_USER=developer' in contents
+    assert 'IMAGE_USER_ID=1000' in contents
+    assert 'IMAGE_USER_HOME=/home/developer' in contents
+    assert 'IMAGE_USER_PRIMARY_GROUP=robotics' in contents
+    assert 'IMAGE_USER_PRIMARY_GROUP_ID=1001' in contents
+    assert 'HOST_WORKSPACE' not in contents
     assert 'DISPLAY' not in contents
     assert stat.S_IMODE(env_file.stat().st_mode) == 0o664
 
@@ -94,12 +94,12 @@ def test_update_user_env_preserves_host_values_comments_and_mode(tmp_path: Path)
     env_file = tmp_path / 'production.env'
     env_file.write_text(
         '# Keep this local comment.\n'
-        'ROBOTICS_DOCKERS_USER=developer\n'
-        'ROBOTICS_DOCKERS_USER_ID=1000\n'
-        'ROBOTICS_DOCKERS_USER_HOME=/home/developer\n'
-        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP=robotics\n'
-        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID=1001\n'
-        'HOST_ROS_WORKSPACE=/srv/robot/workspace\n'
+        'IMAGE_USER=developer\n'
+        'IMAGE_USER_ID=1000\n'
+        'IMAGE_USER_HOME=/home/developer\n'
+        'IMAGE_USER_PRIMARY_GROUP=robotics\n'
+        'IMAGE_USER_PRIMARY_GROUP_ID=1001\n'
+        'HOST_WORKSPACE=/srv/robot/workspace\n'
         'DISPLAY=:1\n'
     )
     env_file.chmod(0o640)
@@ -108,12 +108,12 @@ def test_update_user_env_preserves_host_values_comments_and_mode(tmp_path: Path)
 
     assert env_file.read_text() == (
         '# Keep this local comment.\n'
-        'ROBOTICS_DOCKERS_USER=developer\n'
-        'ROBOTICS_DOCKERS_USER_ID=2000\n'
-        'ROBOTICS_DOCKERS_USER_HOME=/home/developer\n'
-        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP=robotics\n'
-        'ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID=2001\n'
-        'HOST_ROS_WORKSPACE=/srv/robot/workspace\n'
+        'IMAGE_USER=developer\n'
+        'IMAGE_USER_ID=2000\n'
+        'IMAGE_USER_HOME=/home/developer\n'
+        'IMAGE_USER_PRIMARY_GROUP=robotics\n'
+        'IMAGE_USER_PRIMARY_GROUP_ID=2001\n'
+        'HOST_WORKSPACE=/srv/robot/workspace\n'
         'DISPLAY=:1\n'
     )
     assert stat.S_IMODE(env_file.stat().st_mode) == 0o640
@@ -121,9 +121,9 @@ def test_update_user_env_preserves_host_values_comments_and_mode(tmp_path: Path)
 
 def test_update_user_env_rejects_duplicate_managed_values(tmp_path: Path) -> None:
     env_file = tmp_path / '.env'
-    env_file.write_text('ROBOTICS_DOCKERS_USER_ID=1000\nROBOTICS_DOCKERS_USER_ID=2000\n')
+    env_file.write_text('IMAGE_USER_ID=1000\nIMAGE_USER_ID=2000\n')
 
     with pytest.raises(UserEnvError, match='more than once'):
         update_user_env(env_file, _user_info())
 
-    assert env_file.read_text() == 'ROBOTICS_DOCKERS_USER_ID=1000\nROBOTICS_DOCKERS_USER_ID=2000\n'
+    assert env_file.read_text() == 'IMAGE_USER_ID=1000\nIMAGE_USER_ID=2000\n'

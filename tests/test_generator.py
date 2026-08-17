@@ -74,11 +74,11 @@ def test_generated_identity_sources_are_general_and_metadata_is_concrete(tmp_pat
     assert '"${NEW_UID}" "${NEW_GID}" "${ROBOTICS_DOCKERS_USER}" "${ROBOTICS_DOCKERS_USER_HOME}"' in adapter
 
     assert 'user:' not in compose
-    assert '${ROBOTICS_DOCKERS_USER_ID:?' in compose
-    assert '${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID:?' in compose
+    assert '${IMAGE_USER_ID:?' in compose
+    assert '${IMAGE_USER_PRIMARY_GROUP_ID:?' in compose
     assert 'working_dir:' not in compose
     assert 'CONTAINER_ROS_WORKSPACE: "/workspace"' in compose
-    assert '# - "${HOST_ROS_WORKSPACE:' in compose
+    assert '# - "${HOST_WORKSPACE:' in compose
     assert '#- ~/datasets:/datasets' in compose
     assert '# cap_add:' in compose
     assert '#   - NET_ADMIN' in compose
@@ -195,8 +195,8 @@ def test_generated_compose_can_enable_workspace_mount(tmp_path: Path) -> None:
     result = generate_docker_context(_config(tmp_path, enable_workspace_mount=True))
     compose = result.context_dir.joinpath('compose_files/docker-compose.yaml').read_text()
 
-    assert '\n      - "${HOST_ROS_WORKSPACE:' in compose
-    assert '# - "${HOST_ROS_WORKSPACE:' not in compose
+    assert '\n      - "${HOST_WORKSPACE:' in compose
+    assert '# - "${HOST_WORKSPACE:' not in compose
 
 
 def test_generated_build_script_propagates_launch_failure(tmp_path: Path) -> None:

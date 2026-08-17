@@ -185,6 +185,12 @@ while IFS= read -r -d '' environment_hook; do
 done < <(find /tmp/environment-hooks -maxdepth 1 -type f -name '*.rc' -print0 | LC_ALL=C sort -z)
 EOF
 
+# Docker USER changes the account but keeps the previous working directory.
+# Some base images leave that directory at /root, which the development user
+# cannot access. Set the working directory first so Python and Rust installers,
+# and commands such as find, start from the development user's home.
+WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"
+
 # User extras run as the real account, not through sudo -u. The project sudo
 # rule is installed only after this phase succeeds.
 USER "${ROBOTICS_DOCKERS_USER}"
@@ -215,6 +221,5 @@ ENV TZ="Etc/UTC" \
     RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
 
 USER "${ROBOTICS_DOCKERS_USER}"
-WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]

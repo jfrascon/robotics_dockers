@@ -47,7 +47,7 @@ services:
       # Compose creates the volatile XDG directory with the same numeric identity
       # that was stored in the image. The entrypoint validates it but never
       # changes its mode or ownership.
-      - "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}:mode=700,uid=${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image},gid=${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID:?ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID must match the primary GID stored in the Docker image}"
+      - "/run/user/${IMAGE_USER_ID:?IMAGE_USER_ID required}:mode=700,uid=${IMAGE_USER_ID:?IMAGE_USER_ID required},gid=${IMAGE_USER_PRIMARY_GROUP_ID:?IMAGE_USER_PRIMARY_GROUP_ID required}"
 
     volumes:
       # +------------------+
@@ -58,13 +58,13 @@ services:
       # The :? form makes Compose stop during interpolation with the stated
       # explanation when a required local value is unset or empty.
       {% if enable_workspace_mount %}
-      - "${HOST_ROS_WORKSPACE:?HOST_ROS_WORKSPACE must match the ROS workspace path on this host}:{{ img_workspace_dir }}"
+      - "${HOST_WORKSPACE:?HOST_WORKSPACE must match the workspace path on this host}:{{ img_workspace_dir }}"
       {% else %}
       # robotics_dockers does not know whether this image belongs to a project
       # or where that project lives on the host. Uncomment the following line
-      # when a workspace must be mounted, then define HOST_ROS_WORKSPACE in the
+      # when a workspace must be mounted, then define HOST_WORKSPACE in the
       # environment file selected with docker compose --env-file.
-      # - "${HOST_ROS_WORKSPACE:?HOST_ROS_WORKSPACE must match the ROS workspace path on this host}:{{ img_workspace_dir }}"
+      # - "${HOST_WORKSPACE:?HOST_WORKSPACE must match the workspace path on this host}:{{ img_workspace_dir }}"
       {% endif %}
 
       # +------------------+
@@ -82,7 +82,7 @@ services:
       #   scripts/install-docker-gui-support.sh
       - type: bind
         source: "${HOST_XAUTHORITY_FILE:?HOST_XAUTHORITY_FILE must match the Xauthority file path on this host}"
-        target: "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}/docker-xwayland.xauth"
+        target: "/run/user/${IMAGE_USER_ID:?IMAGE_USER_ID required}/docker-xwayland.xauth"
         read_only: true
         bind:
           create_host_path: false
@@ -135,8 +135,8 @@ services:
     environment:
       # Use the host XWayland display and the Xauthority file mounted above.
       DISPLAY: "${DISPLAY:?DISPLAY must match the graphical display available on this host}"
-      XDG_RUNTIME_DIR: "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}"
-      XAUTHORITY: "/run/user/${ROBOTICS_DOCKERS_USER_ID:?ROBOTICS_DOCKERS_USER_ID must match the UID stored in the Docker image}/docker-xwayland.xauth"
+      XDG_RUNTIME_DIR: "/run/user/${IMAGE_USER_ID:?IMAGE_USER_ID required}"
+      XAUTHORITY: "/run/user/${IMAGE_USER_ID:?IMAGE_USER_ID required}/docker-xwayland.xauth"
       CONTAINER_ROS_WORKSPACE: "{{ img_workspace_dir }}"
 
       # Force Qt applications such as RViz and Gazebo to use X11 through

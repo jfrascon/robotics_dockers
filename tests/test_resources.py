@@ -339,7 +339,13 @@ def test_runtime_entrypoint_is_root_owned_by_dockerfile_but_runs_as_development_
         in dockerfile
     )
     assert dockerfile.rstrip().endswith('CMD ["bash"]')
-    assert 'USER "${ROBOTICS_DOCKERS_USER}"\nWORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"' in dockerfile
+    user_extras_workdir = dockerfile.index('WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"')
+    user_extras_account = dockerfile.index('USER "${ROBOTICS_DOCKERS_USER}"', user_extras_workdir)
+    user_extras_run = dockerfile.index('source=.resources/install_user_extras.sh')
+    assert user_extras_workdir < user_extras_account < user_extras_run
+    assert dockerfile.rstrip().endswith(
+        'USER "${ROBOTICS_DOCKERS_USER}"\nENTRYPOINT ["/usr/local/bin/entrypoint.sh"]\nCMD ["bash"]'
+    )
     assert 'exec "$@"' in entrypoint
     assert 'setpriv' not in entrypoint
     assert 'gosu' not in entrypoint

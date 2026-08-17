@@ -53,7 +53,7 @@ class ResolvedDockerContextConfig:
     use_host_nvidia_driver: bool
     # Standalone image contexts do not necessarily belong to a source project.
     # Keep their workspace bind mount disabled unless the caller explicitly
-    # knows that HOST_ROS_WORKSPACE is part of the generated runtime contract.
+    # knows that HOST_WORKSPACE is part of the generated runtime contract.
     enable_workspace_mount: bool
     meta_title: str
     meta_desc: str

@@ -283,6 +283,24 @@ stat --format 'HOME=%u:%g:%a' /home/developer
     assert 'VIDEO_GSHADOW=yes' in completed.stdout
 
 
+def test_configure_image_user_accepts_large_directory_service_ids_without_warning(ubuntu_image: str) -> None:
+    configure = Path(str(resources.files('robotics_dockers.resources').joinpath('configure_image_user.sh')))
+    completed = _run(
+        ubuntu_image,
+        """
+bash /tmp/configure domainuser 1769405158 domainuser 1769400513 /home/domainuser || exit 1
+getent passwd domainuser
+getent group domainuser
+""",
+        mounts=((configure, '/tmp/configure'),),
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert 'domainuser:x:1769405158:1769400513::/home/domainuser:/bin/bash' in completed.stdout
+    assert 'domainuser:x:1769400513:' in completed.stdout
+    assert 'outside of the UID_MIN' not in completed.stderr
+
+
 def test_configure_image_user_reuses_an_exact_existing_identity(ubuntu_image: str) -> None:
     configure = Path(str(resources.files('robotics_dockers.resources').joinpath('configure_image_user.sh')))
     completed = _run(
