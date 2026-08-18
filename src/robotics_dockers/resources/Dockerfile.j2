@@ -2,8 +2,8 @@
 
 FROM {{ base_img }}
 
-# These OCI labels describe the generated project. They are chosen when
-# robotics-dockers new creates this Dockerfile. build.py adds only the creation
+# These OCI labels describe the generated project.
+# They are chosen when robotics-dockers new creates this Dockerfile. build.py adds only the creation
 # timestamp because that value belongs to the later build operation.
 LABEL org.opencontainers.image.title={{ meta_title | tojson }} \
     org.opencontainers.image.description={{ meta_desc | tojson }} \
@@ -18,11 +18,11 @@ USER root
 WORKDIR /root
 SHELL ["/bin/bash", "-c"]
 
-# BuildKit includes files used by RUN --mount=type=bind in the cache key. A
-# changed mounted file therefore invalidates this RUN even though an ordinary RUN
-# is normally matched from its instruction text. The mounted files are temporary:
-# they are not stored in the final image or in a resource layer. robotics-dockers
-# consequently does not implement a second checksum mechanism.
+# BuildKit includes files used by RUN --mount=type=bind in the cache key.
+# A changed mounted file therefore invalidates this RUN even though an ordinary RUN is normally
+# matched from its instruction text.
+# The mounted files are temporary; they are not stored in the final image or in a resource layer.
+# robotics-dockers consequently does not implement a second checksum mechanism.
 # Reference: https://docs.docker.com/build/cache/invalidation/
 RUN --mount=type=bind,source=.resources/install_pkgs,target=/tmp/install_pkgs,readonly \
     --mount=type=bind,source=.resources/install_base_system.sh,target=/tmp/install_base_system.sh,readonly <<'EOF'
@@ -62,8 +62,9 @@ skip_rosdep_keys /tmp/rosdep_skip_keys.txt || {
 EOF
 
 # Apt customizations are intentionally later than the expensive common ROS
-# installation. Editing packages.txt or a project repository rebuilds this phase
-# and the user-specific phases, but retains the common system layers.
+# installation.
+# Editing packages.txt or a project repository rebuilds this phase and the user-specific phases,
+# but retains the common system layers.
 RUN --mount=type=bind,source=.resources/install_extra_apt.sh,target=/tmp/install_extra_apt.sh,readonly \
     --mount=type=bind,source=.resources/extra.d/apt,target=/tmp/extra_d_apt,readonly <<'EOF'
 bash /tmp/install_extra_apt.sh /tmp/extra_d_apt || {
@@ -72,18 +73,17 @@ bash /tmp/install_extra_apt.sh /tmp/extra_d_apt || {
 }
 EOF
 
-# The development identity is placed after common package layers so changing a
-# name or numeric identifier can reuse those layers. No defaults are provided:
-# build.py validates and supplies every value, while a direct docker build must
-# provide the same complete contract explicitly.
+# The development identity is placed after common package layers so changing a name or numeric
+# identifier can reuse those layers. No defaults are provided; build.py validates and supplies every
+# value, while a direct docker build must provide the same complete contract explicitly.
 ARG ROBOTICS_DOCKERS_USER
 ARG ROBOTICS_DOCKERS_USER_ID
 ARG ROBOTICS_DOCKERS_USER_HOME
 ARG ROBOTICS_DOCKERS_USER_PRIMARY_GROUP
 ARG ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID
 
-# ARG values disappear after the build stage. ENV keeps the final identity
-# available to the entrypoint, derived images and inspection tools.
+# ARG values disappear after the build stage.
+# ENV keeps the final identity available to the entrypoint, derived images and inspection tools.
 ENV ROBOTICS_DOCKERS_USER="${ROBOTICS_DOCKERS_USER}" \
     ROBOTICS_DOCKERS_USER_ID="${ROBOTICS_DOCKERS_USER_ID}" \
     ROBOTICS_DOCKERS_USER_HOME="${ROBOTICS_DOCKERS_USER_HOME}" \
@@ -97,8 +97,8 @@ LABEL io.github.jfrascon.robotics-dockers.user.name="${ROBOTICS_DOCKERS_USER}" \
     io.github.jfrascon.robotics-dockers.user.primary-group.id="${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}"
 
 # Preparation hooks are an explicit escape hatch for known base-image accounts.
-# They run as root before any project identity is created. Only regular .sh files
-# are active; .example files remain documentation until deliberately renamed.
+# They run as root before any project identity is created.
+# Only regular .sh files are active; .example files remain documentation until deliberately renamed.
 RUN --mount=type=bind,source=.resources/user_preparation.d,target=/tmp/user_preparation.d,readonly \
     --mount=type=bind,source=.resources/configure_image_user.sh,target=/tmp/configure_image_user.sh,readonly <<'EOF'
 if find /tmp/user_preparation.d -type l -print -quit | grep -q .; then
@@ -126,8 +126,8 @@ bash /tmp/configure_image_user.sh \
     }
 EOF
 
-# rosdep and colcon create data that belongs in the configured home, so these
-# phases run only after that account has been validated.
+# rosdep and colcon create data that belongs in the configured home, so these phases run only after
+# that account has been validated.
 RUN --mount=type=bind,source=.resources/rosdep_init_update_install.sh,target=/tmp/rosdep_init_update_install.sh,readonly \
     --mount=type=bind,from=pkgs,target=/tmp/pkgs_dir,readonly <<'EOF'
 bash /tmp/rosdep_init_update_install.sh \
@@ -144,8 +144,8 @@ bash /tmp/colcon_mixin_metadata.sh "${ROBOTICS_DOCKERS_USER}" || {
 }
 EOF
 
-# Install runtime files individually with their final ownership. No recursive
-# ownership repair is needed, so large pre-existing homes are not scanned.
+# Install runtime files individually with their final ownership.
+# No recursive ownership repair is needed, so large pre-existing homes are not scanned.
 RUN --mount=type=bind,source=.resources/bashrc_user,target=/tmp/bashrc_user,readonly \
     --mount=type=bind,source=.resources/bash_aliases_user,target=/tmp/bash_aliases_user,readonly \
     --mount=type=bind,source=.resources/entrypoint_user.sh,target=/tmp/entrypoint_user.sh,readonly \
@@ -186,13 +186,13 @@ done < <(find /tmp/environment-hooks -maxdepth 1 -type f -name '*.rc' -print0 | 
 EOF
 
 # Docker USER changes the account but keeps the previous working directory.
-# Some base images leave that directory at /root, which the development user
-# cannot access. Set the working directory first so Python and Rust installers,
-# and commands such as find, start from the development user's home.
+# Some base images leave that directory at /root, which the development user cannot access.
+# Set the working directory first so Python and Rust installers, and commands such as find, start
+# from the development user's home.
 WORKDIR "${ROBOTICS_DOCKERS_USER_HOME}"
 
-# User extras run as the real account, not through sudo -u. The project sudo
-# rule is installed only after this phase succeeds.
+# User extras run as the real account, not through sudo -u.
+# The project sudo rule is installed only after this phase succeeds.
 USER "${ROBOTICS_DOCKERS_USER}"
 RUN --mount=type=bind,source=.resources/install_user_extras.sh,target=/tmp/install_user_extras.sh,readonly \
     --mount=type=bind,source=.resources/extra.d/python,target=/tmp/extra/python,readonly \
@@ -205,8 +205,8 @@ USER root
 RUN --mount=type=bind,source=.resources/configure_sudo.sh,target=/tmp/configure_sudo.sh,readonly \
     bash /tmp/configure_sudo.sh "${ROBOTICS_DOCKERS_USER}"
 
-# General runtime defaults are safe for root and alternate users. Values that
-# contain the development home are set by .ros.rc only in the matching-user path.
+# General runtime defaults are safe for root and alternate users.
+# Values that contain the development home are set by .ros.rc only in the matching-user path.
 ENV TZ="Etc/UTC" \
     LC_ALL="en_US.UTF-8" \
     LANG="en_US.UTF-8" \
