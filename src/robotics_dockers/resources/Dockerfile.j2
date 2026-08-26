@@ -18,6 +18,21 @@ USER root
 WORKDIR /root
 SHELL ["/bin/bash", "-c"]
 
+
+# Configure apt to avoid long stalls and to retry failed downloads.
+RUN tee /etc/apt/apt.conf.d/99timeouts.conf >/dev/null <<'EOF'
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+Acquire::ftp::Timeout "30";
+Acquire::Retries "3";
+EOF
+
+# Keep package installations minimal during the build and later use of the image.
+RUN tee /etc/apt/apt.conf.d/99norecommends.conf >/dev/null <<'EOF'
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";
+EOF
+
 # BuildKit includes files used by RUN --mount=type=bind in the cache key.
 # A changed mounted file therefore invalidates this RUN even though an ordinary RUN is normally
 # matched from its instruction text.
@@ -30,6 +45,7 @@ install --owner root --group root --mode 0755 /tmp/install_pkgs /usr/local/bin/i
     echo "Error: could not install /usr/local/bin/install_pkgs" >&2
     exit 1
 }
+
 bash /tmp/install_base_system.sh || {
     echo "Error: base-system installation failed" >&2
     exit 1
@@ -51,10 +67,12 @@ install --owner root --group root --mode 0755 /tmp/skip_rosdep_keys /usr/local/b
     echo "Error: could not install skip_rosdep_keys" >&2
     exit 1
 }
+
 bash /tmp/install_ros.sh "${ROS_DISTRO}" || {
     echo "Error: ROS installation failed" >&2
     exit 1
 }
+
 skip_rosdep_keys /tmp/rosdep_skip_keys.txt || {
     echo "Error: rosdep skip-key configuration failed" >&2
     exit 1
@@ -105,6 +123,7 @@ if find /tmp/user_preparation.d -type l -print -quit | grep -q .; then
     echo "Error: symbolic links are not allowed in user_preparation.d" >&2
     exit 1
 fi
+
 while IFS= read -r -d '' preparation_hook; do
     # ${preparation_hook##*/} removes the directory prefix and leaves the hook
     # filename for the human-readable build log.
@@ -157,26 +176,35 @@ if [ ! -s "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc" ]; then
     install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
         --mode 0644 /etc/skel/.bashrc "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc" || exit 1
 fi
+
 install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
     --mode 0644 /tmp/bashrc_user "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc_user" || exit 1
+
 bashrc_loader_marker='# Load the robotics-dockers interactive Bash configuration.'
+
 if ! grep -qxF "${bashrc_loader_marker}" "${ROBOTICS_DOCKERS_USER_HOME}/.bashrc"; then
     printf '\n%s\nif [ -f "${HOME}/.bashrc_user" ]; then\n    . "${HOME}/.bashrc_user"\nfi\n' \
         "${bashrc_loader_marker}" >>"${ROBOTICS_DOCKERS_USER_HOME}/.bashrc" || exit 1
 fi
+
 install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
     --mode 0644 /tmp/bash_aliases_user "${ROBOTICS_DOCKERS_USER_HOME}/.bash_aliases_user" || exit 1
+
 install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
     --mode 0644 /tmp/env.rc "${ROBOTICS_DOCKERS_USER_HOME}/.env.rc" || exit 1
+
 install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
     --mode 0644 /tmp/ros.rc "${ROBOTICS_DOCKERS_USER_HOME}/.ros.rc" || exit 1
+
 install --owner root --group root --mode 0755 /tmp/entrypoint_user.sh /usr/local/bin/entrypoint.sh || exit 1
+
 install --owner root --group root --mode 0755 /tmp/rosbuild /usr/local/bin/rosbuild || exit 1
 
 if find /tmp/environment-hooks -type l -print -quit | grep -q .; then
     echo "Error: symbolic links are not allowed in extra.d/env.d" >&2
     exit 1
 fi
+
 while IFS= read -r -d '' environment_hook; do
     # ${environment_hook##*/} removes the directory prefix and leaves the hook
     # filename used at the destination.

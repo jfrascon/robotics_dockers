@@ -304,6 +304,26 @@ esac
     assert failing_command in calls_file.read_text().splitlines()
 
 
+def test_dockerfile_configures_persistent_apt_policy_before_package_installation() -> None:
+    dockerfile = resources.files('robotics_dockers.resources').joinpath('Dockerfile.j2').read_text()
+
+    timeouts_policy = """RUN tee /etc/apt/apt.conf.d/99timeouts.conf >/dev/null <<'EOF'
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+Acquire::ftp::Timeout "30";
+Acquire::Retries "3";
+EOF"""
+    package_policy = """RUN tee /etc/apt/apt.conf.d/99norecommends.conf >/dev/null <<'EOF'
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";
+EOF"""
+
+    assert timeouts_policy in dockerfile
+    assert package_policy in dockerfile
+    assert dockerfile.index(timeouts_policy) < dockerfile.index('RUN --mount=type=bind')
+    assert dockerfile.index(package_policy) < dockerfile.index('RUN --mount=type=bind')
+
+
 def test_dockerfile_uses_separate_buildkit_mount_phases_without_manual_checksums() -> None:
     dockerfile = resources.files('robotics_dockers.resources').joinpath('Dockerfile.j2').read_text()
 
