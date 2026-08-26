@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "robotics-dockers"
-version = "1.0.2"
+version = "1.1.0"
 description = "Generate Docker build contexts for ROS 2 development images."
 readme = "README.md"
 requires-python = ">=3.10"
