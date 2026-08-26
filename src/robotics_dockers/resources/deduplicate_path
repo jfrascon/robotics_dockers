@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+# Deduplicate a colon-separated path-like string.
+#
+# Behavior:
+#   - Reads the input string from the first argument.
+#   - Splits entries using ':'.
+#   - Removes empty entries.
+#   - Trims leading/trailing spaces and tabs.
+#   - Keeps the first occurrence of each entry.
+#   - Prints the resulting colon-separated string to stdout.
+#
+# Example:
+#
+#   PATH="$(deduplicate_path "${HOME}/.local/bin:${PATH-}")"
+
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    printf 'Usage: %s PATH_VALUE\n' "${0##*/}" >&2
+    exit 2
+fi
+
+# printf does not append the newline that a Bash here-string would add to the
+# final record. With ':' as awk's record separator, that newline would become
+# part of the last path entry instead of ordinary record-ending whitespace.
+printf '%s' "$1" | awk -v RS=':' '
+    {
+        token = $0
+
+        # Normalize the entry by removing leading and trailing spaces/tabs.
+        # This avoids treating "/usr/bin" and " /usr/bin " as different paths.
+        gsub(/^[ \t]+|[ \t]+$/, "", token)
+
+        # Ignore empty entries and print only the first occurrence of each path.
+        # Keeping the first occurrence preserves the left-to-right priority used
+        # by PATH-like variables.
+        if (token != "" && !seen[token]++) {
+            printf "%s%s", separator, token
+            separator = ":"
+        }
+    }
+
+    # Finish the output with a newline.
+    # The actual path entries are printed incrementally above; this END block
+    # only makes the command output behave like a normal Unix text line.
+    END {
+        print ""
+    }
+'

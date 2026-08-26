@@ -36,6 +36,7 @@ def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> No
         'env_files/.gitkeep',
         '.resources/configure_image_user.sh',
         '.resources/configure_sudo.sh',
+        '.resources/deduplicate_path',
         '.resources/entrypoint_user.sh',
         '.resources/update_image_user.sh',
         '.resources/extra.d/apt/packages.txt',
@@ -46,6 +47,8 @@ def test_generate_docker_context_creates_new_contract_only(tmp_path: Path) -> No
     )
     for relative_path in expected:
         assert result.context_dir.joinpath(relative_path).exists(), relative_path
+
+    assert result.context_dir.joinpath('.resources/deduplicate_path').stat().st_mode & 0o111 == 0o111
 
     assert not result.context_dir.joinpath('compose_files/docker-compose.yaml').exists()
 

@@ -13,6 +13,7 @@ BASH_RESOURCE_FILES = (
     'colcon_mixin_metadata.sh',
     'configure_image_user.sh',
     'configure_sudo.sh',
+    'deduplicate_path',
     'entrypoint_user.sh',
     'env.rc',
     'extra.d/rust/install.sh.example',
@@ -53,6 +54,27 @@ def test_bash_resources_parse_successfully() -> None:
         script = package_resources.joinpath(script_name)
         result = subprocess.run(['bash', '-n', str(script)], capture_output=True, text=True, check=False)
         assert result.returncode == 0, f'{script_name}: {result.stderr}'
+
+
+def test_deduplicate_path_normalizes_one_colon_separated_argument() -> None:
+    script = resources.files('robotics_dockers.resources').joinpath('deduplicate_path')
+    result = subprocess.run(
+        [str(script), ':/usr/bin:: /opt/tools/bin :/usr/bin:/bin:'], capture_output=True, text=True, check=False
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == '/usr/bin:/opt/tools/bin:/bin\n'
+    assert result.stderr == ''
+
+
+@pytest.mark.parametrize('arguments', [(), ('first', 'second')])
+def test_deduplicate_path_requires_exactly_one_argument(arguments: tuple[str, ...]) -> None:
+    script = resources.files('robotics_dockers.resources').joinpath('deduplicate_path')
+    result = subprocess.run([str(script), *arguments], capture_output=True, text=True, check=False)
+
+    assert result.returncode == 2
+    assert result.stdout == ''
+    assert result.stderr == 'Usage: deduplicate_path PATH_VALUE\n'
 
 
 def test_removed_runtime_identity_resources_are_absent() -> None:
@@ -369,6 +391,20 @@ def test_runtime_entrypoint_is_root_owned_by_dockerfile_but_runs_as_development_
     assert 'exec "$@"' in entrypoint
     assert 'setpriv' not in entrypoint
     assert 'gosu' not in entrypoint
+
+
+def test_deduplicate_path_is_installed_globally_without_automatic_consumers() -> None:
+    package_resources = resources.files('robotics_dockers.resources')
+    dockerfile = package_resources.joinpath('Dockerfile.j2').read_text()
+
+    assert 'source=.resources/deduplicate_path,target=/tmp/deduplicate_path,readonly' in dockerfile
+    assert (
+        'install --owner root --group root --mode 0755 /tmp/deduplicate_path /usr/local/bin/deduplicate_path'
+        in dockerfile
+    )
+
+    for resource_name in ('bashrc_user', 'entrypoint_user.sh', 'env.rc', 'ros.rc'):
+        assert 'deduplicate_path' not in package_resources.joinpath(resource_name).read_text()
 
 
 def test_install_pkgs_uses_one_real_apt_installation() -> None:

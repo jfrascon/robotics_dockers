@@ -167,6 +167,7 @@ EOF
 # No recursive ownership repair is needed, so large pre-existing homes are not scanned.
 RUN --mount=type=bind,source=.resources/bashrc_user,target=/tmp/bashrc_user,readonly \
     --mount=type=bind,source=.resources/bash_aliases_user,target=/tmp/bash_aliases_user,readonly \
+    --mount=type=bind,source=.resources/deduplicate_path,target=/tmp/deduplicate_path,readonly \
     --mount=type=bind,source=.resources/entrypoint_user.sh,target=/tmp/entrypoint_user.sh,readonly \
     --mount=type=bind,source=.resources/env.rc,target=/tmp/env.rc,readonly \
     --mount=type=bind,source=.resources/ros.rc,target=/tmp/ros.rc,readonly \
@@ -195,6 +196,8 @@ install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_P
 
 install --owner "${ROBOTICS_DOCKERS_USER_ID}" --group "${ROBOTICS_DOCKERS_USER_PRIMARY_GROUP_ID}" \
     --mode 0644 /tmp/ros.rc "${ROBOTICS_DOCKERS_USER_HOME}/.ros.rc" || exit 1
+
+install --owner root --group root --mode 0755 /tmp/deduplicate_path /usr/local/bin/deduplicate_path || exit 1
 
 install --owner root --group root --mode 0755 /tmp/entrypoint_user.sh /usr/local/bin/entrypoint.sh || exit 1
 

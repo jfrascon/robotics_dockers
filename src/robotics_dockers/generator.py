@@ -64,6 +64,7 @@ def _create_items_to_install(config: ResolvedDockerContextConfig) -> dict[str, R
         '.resources/bash_aliases_user': ['bash_aliases_user', True],
         '.resources/configure_image_user.sh': ['configure_image_user.sh', True],
         '.resources/configure_sudo.sh': ['configure_sudo.sh', True],
+        '.resources/deduplicate_path': ['deduplicate_path', True],
         '.resources/entrypoint_user.sh': ['entrypoint_user.sh', True],
         '.resources/env.rc': ['env.rc', True],
         '.resources/install_pkgs': ['install_pkgs', True],
