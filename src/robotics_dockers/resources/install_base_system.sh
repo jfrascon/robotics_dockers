@@ -40,6 +40,7 @@ apt-get dist-upgrade --yes --no-install-recommends || handle_error 1 "The distri
 
 packages=(
     apt-rdepends
+    assimp-utils
     automake
     bash-completion
     build-essential
@@ -71,6 +72,7 @@ packages=(
     passwd
     procps
     python3-dev
+    python3-mypy
     python3-numpy
     python3-pip
     python3-pytest
