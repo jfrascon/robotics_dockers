@@ -67,6 +67,13 @@ def test_deduplicate_path_normalizes_one_colon_separated_argument() -> None:
     assert result.stderr == ''
 
 
+def test_rosdep_installer_requires_a_package_manifest_in_the_packages_directory() -> None:
+    script = resources.files('robotics_dockers.resources').joinpath('rosdep_init_update_install.sh').read_text()
+
+    assert 'find "${pkgs_dir}" -type f -name package.xml -print -quit' in script
+    assert 'No package.xml files are visible in' in script
+
+
 @pytest.mark.parametrize('arguments', [(), ('first', 'second')])
 def test_deduplicate_path_requires_exactly_one_argument(arguments: tuple[str, ...]) -> None:
     script = resources.files('robotics_dockers.resources').joinpath('deduplicate_path')

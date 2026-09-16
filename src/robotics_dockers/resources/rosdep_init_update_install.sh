@@ -165,6 +165,12 @@ HOME="${root_home}" ROS_HOME="${root_ros_home}" rosdep update --rosdistro "${ROS
 if [ -n "${pkgs_dir}" ]; then
     log info "Installing dependencies with rosdep for packages located at '${pkgs_dir}'"
 
+    if ! find "${pkgs_dir}" -type f -name package.xml -print -quit | grep --quiet .; then
+        handle_error 1 "No package.xml files are visible in '${pkgs_dir}'"
+    fi
+    log info "ROS package manifests visible in '${pkgs_dir}':"
+    find "${pkgs_dir}" -type f -name package.xml -print | sort
+
     # Update cache to ensure the latest package information is available.
     apt-get update --quiet --quiet || handle_error 1 "apt-get update failed"
 
